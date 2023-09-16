@@ -9,13 +9,13 @@
 首先查看一下Qemu的源码：
 
 + target/riscv/cpu_bits.h
-```
+```C
 /* Default Reset Vector adress */
 #define DEFAULT_RSTVEC      0x1000
 ```
 
 + target/riscv/cpu.c
-```
+```C
 static void riscv_any_cpu_init(Object *obj)
 {
     CPURISCVState *env = &RISCV_CPU(obj)->env;
@@ -32,7 +32,7 @@ static void riscv_any_cpu_init(Object *obj)
 ```
 
 + hw/riscv/virt.c
-```
+```C
 riscv_find_and_load_firmware(machine, BIOS_FILENAME,
                                  memmap[VIRT_DRAM].base);//memmap[VIRT_MROM].base=0x80000000
 ...
