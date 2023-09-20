@@ -216,7 +216,7 @@ case CAUSE_BREAKPOINT:
     tf->epc += 2;  // 更新 tf->epc寄存器
     break;
 ```
-需要注意的是，根据riscv标准手册，我们要验证的非法指令`mret`的长度是4个字节，断点指令`ebreak`，因而在case IRQ_S_TIMER里更新tf->epc寄存器是加4，在case CAUSE_BREAKPOINT里则是加2。
+需要注意的是，根据riscv标准手册，我们要验证的非法指令`mret`的长度是4个字节，断点指令`ebreak`的长度是2个字节，因而在case IRQ_S_TIMER里更新tf->epc寄存器是加4，在case CAUSE_BREAKPOINT里则是加2。
 
 ![图片描述，可写可不写，但是中括号要有](lab1img4.png)
 
