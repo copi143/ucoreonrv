@@ -213,12 +213,18 @@ case CAUSE_BREAKPOINT:
     /* LAB1 CHALLENGE3   YOUR CODE :  */
     cprintf("Exception type: breakpoint\n");  // 输出异常类型
     cprintf("ebreak caught at 0x%016llx\n", tf->epc);  // 输出异常指令地址
-    tf->epc += 4;  // 更新 tf->epc寄存器
+    tf->epc += 2;  // 更新 tf->epc寄存器
     break;
 ```
+需要注意的是，根据riscv标准手册，我们要验证的非法指令`mret`的长度是4个字节，断点指令`ebreak`，因而在case IRQ_S_TIMER里更新tf->epc寄存器是加4，在case CAUSE_BREAKPOINT里则是加2。
+
+![图片描述，可写可不写，但是中括号要有](lab1img4.png)
+
+![图片描述，可写可不写，但是中括号要有](lab1img5.png)
 
 我们在init.c中通过内联汇编使用`mret`和`ebreak`指令即会触发这两个异常：
 ```C
+asm volatile("ebreak");
 asm volatile("mret");
 asm volatile("ebreak");
 ```
