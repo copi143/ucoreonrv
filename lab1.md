@@ -103,9 +103,14 @@ case IRQ_S_TIMER:
 ```
 在clock.c中封装着一个gettime函数对于64位系统可以直接读取，对于32位系统需要分成两个32位整数读取time寄存器的值然后拼接。然后在clock_init函数中需要首先将sie寄存器中的时钟使能信号打开，然后设置一个时钟中断信息，并设定timebase = 100000，对于QEMU，模拟出来CPU的主频是10MHz，每个时钟周期也就是100ns，达到timebase共需要10ms，即10ms触发一次时钟中断。每100次时钟中断打印一次信息，也就是每1s打印一次`100 ticks`。num用来标记打印的次数，当num达到10时，我们调用sbi_shutdown函数，实现关机。
 
-执行效果如下：
+运行`make qemu`后效果如下：
 
 ![图片描述，可写可不写，但是中括号要有](lab1img2.png)
+
+运行`make grade`后效果如下：
+
+![图片描述，可写可不写，但是中括号要有](lab1img6.png)
+
 
 #### 扩展练习 Challenge1：描述与理解中断流程
 > 回答：描述ucore中处理中断异常的流程（从异常的产生开始），其中mov a0，sp的目的是什么？SAVE_ALL中寄寄存器保存在栈中的位置是什么确定的？对于任何中断，__alltraps 中都需要保存所有寄存器吗？请说明理由。
@@ -229,6 +234,6 @@ asm volatile("mret");
 asm volatile("ebreak");
 ```
 
-执行效果如下：
+运行`make qemu`后效果如下：
 
 ![图片描述，可写可不写，但是中括号要有](lab1img3.png)
