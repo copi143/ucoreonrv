@@ -100,6 +100,7 @@ default_alloc_pages(size_t n) {
     }
     struct Page *page = NULL;
     list_entry_t *le = &free_list;
+	/*find the first block that larger then user's need*/
     while ((le = list_next(le)) != &free_list) {
         struct Page *p = le2page(le, page_link);
         if (p->property >= n) {
