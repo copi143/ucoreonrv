@@ -132,6 +132,8 @@ buddy_system_free_pages(struct Page *base, size_t n)
         else
             root[index]=max(root[LEFT_LEAF(index)],root[RIGHT_LEAF(index)]);
     }
+    for (struct Page *p = base; p != base + n; p++)
+        ClearPageProperty(p);
 }
 
 static size_t
