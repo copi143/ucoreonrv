@@ -139,13 +139,13 @@ buddy_system_nr_free_pages(void)
 {
     return nr_free;
 }
+//下面检测来自伙伴分配器链接开端那张图+csdn
 static void
 buddy_check(void)
 {
 /*
     cprintf("root check%s\n","!");
     
-
     assert((p0 = alloc_page()) != NULL);
     assert((A = alloc_page()) != NULL);
     assert((B = alloc_page()) != NULL);
@@ -217,7 +217,6 @@ buddy_check(void)
     cprintf("全部释放\n");
     cprintf("检查完成，没有错误\n");
 }
-// 这个结构体在
 const struct pmm_manager buddy_pmm_manager = {
     .name = "buddy_pmm_manager",
     .init = buddy_system_init,
