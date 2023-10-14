@@ -85,7 +85,7 @@ static void page_init(void) {
 
     uint64_t mem_begin = KERNEL_BEGIN_PADDR;
     uint64_t mem_size = PHYSICAL_MEMORY_END - KERNEL_BEGIN_PADDR;
-    uint64_t mem_end = PHYSICAL_MEMORY_END; //硬编码取�sbi_query_memory()接口
+    uint64_t mem_end = PHYSICAL_MEMORY_END; //硬编码取sbi_query_memory()接口
 
     cprintf("physcial memory map:\n");
     cprintf("  memory: 0x%016lx, [0x%016lx, 0x%016lx].\n", mem_size, mem_begin,
@@ -100,7 +100,7 @@ static void page_init(void) {
     extern char end[];
 
     npage = maxpa / PGSIZE;
-    //kernel在end[]结束, pages是剩下的页的开�
+    //kernel在end[]结束, pages是剩下的页的开
     pages = (struct Page *)ROUNDUP((void *)end, PGSIZE);
 
     for (size_t i = 0; i < npage - nbase; i++) {
