@@ -84,9 +84,11 @@ static uintptr_t kmem_alloc(size_t n){
     assert(order < 12);//it'a simple slub, we don't treat the applyments which larger than 1 page
     /*find a suitable cache in needed*/
     kmem_cache* p_cache = get_suit_cache(n);
+
+
     size_t offset = p_cache->object_size / 8;//move through the object and find the next object
     //ensure my cpu has a slub
-    if(my_cpu_slub == 0){
+    if(my_cpu_slub == 0||my_cpu_slub->free_blocks_num == 0){
         while(!list_empty(&my_node_partialist)){
             list_entry_t* le = &my_node_partialist;
             if((le = list_next(le)) != &my_node_partialist){
@@ -97,6 +99,7 @@ static uintptr_t kmem_alloc(size_t n){
                 }
             }
         }
+
         /*if we have no page,apply for pmm*/
         my_cpu_slub = pmm_manager->alloc_pages(1);
         //we should set the blocks into free_list
@@ -111,16 +114,16 @@ static uintptr_t kmem_alloc(size_t n){
         }
         p_cache->cpu->free_blocks_num = p_cache->block_num;//all of the blocks are free
     }
-
     //go to free_list to find a needed free block
     uint64_t* result = (uint64_t*)my_cpu_freelist;
     if(*(result) == 0){
         my_cpu_freelist = 0;
         list_add(&my_node_fulllist,&(my_cpu_slub->page_link));//when the free list is empty, means slub is full
+    }else{
+        my_cpu_freelist = *(uint64_t* )(my_cpu_freelist);
     }
     p_cache->cpu->free_blocks_num--;
 
-    my_cpu_freelist = *(uint64_t* )(my_cpu_freelist);
     //we should set the red-zone, but again, this just a simple slub
     //it should be a va, right?
     return (uintptr_t)result;
@@ -130,28 +133,25 @@ static int where_is_the_block(struct Page* page,kmem_cache* p_cache){
     int flag;
     if(page == my_cpu_slub){
         flag = 2;
-    }
-    list_entry_t* le = &page->page_link;
-    if (flag!=2)
-    {
-        while ((list_next(le) != &my_node_fulllist)||((list_next(le)) != &my_node_partialist)) {
-        le = list_next(le);
-    }
-    }
-     
-    //if free from full
-    if(list_next(le) == &my_node_fulllist){
+    }else{
+        list_entry_t* le = &page->page_link;
+        while (le != &my_node_fulllist && le != &my_node_partialist) {
+             le = list_next(le);
+             //cprintf("in flag\n");
+        }
+            //if free from full
+        if(le == &my_node_fulllist){
         flag = 1;
+        }
+        //if free from partial
+        else flag = 0;
     }
-    //if free from partial
-    else flag = 0;
     return flag;
 }
 
 static void kmem_free(uintptr_t base,size_t n){
     unsigned int order = getorder(n);
-    assert(order>11);
-
+    assert(order < 12);
     kmem_cache* p_cache = get_suit_cache(n);
 
     //find the target is on which list
@@ -160,15 +160,16 @@ static void kmem_free(uintptr_t base,size_t n){
     //find the list, to find the target you need
     int flag = where_is_the_block(page,p_cache);
 
+    //if it's free on cpu_slab
     if(flag==2){
         p_cache->cpu->free_blocks_num ++;
         if(p_cache->block_num == p_cache->cpu->free_blocks_num){
             p_cache->cpu = NULL;
             pmm_manager->free_pages(page,1);//reback the page to pmm
         }
-        *(uint64_t*)pa = p_cache->cpu->free_blocks;//point to next
-        p_cache->cpu->free_blocks = pa; //point to this
-
+        *(uint64_t*)base = p_cache->cpu->free_blocks;//point to next
+        p_cache->cpu->free_blocks = base; //point to this
+    //if it's free on full
     }else if (flag==1){
         //give it to partial, then solve
         list_del(&(page->page_link));
@@ -180,6 +181,7 @@ static void kmem_free(uintptr_t base,size_t n){
             list_del(&page->page_link);
             pmm_manager->free_pages(page,1);//reback the page to pmm
         }
+    //if it's free on partial
     }else{
         page->free_blocks_num ++;
         /*maybe just one block*/
@@ -193,17 +195,32 @@ static void kmem_free(uintptr_t base,size_t n){
 static void
 kmem_check(void){
     uintptr_t A = slub_manager->kmalloc(5);
-    uintptr_t B =slub_manager->kmalloc(3);
-    uintptr_t C = slub_manager->kmalloc(9);
-    uintptr_t D =slub_manager->kmalloc(3);
-    uintptr_t E =slub_manager->kmalloc(500);
-    cprintf("the paddr of A: %x\n",PADDR(A));
-    cprintf("the paddr of B: %x\n",PADDR(B));
-    cprintf("the paddr of C: %x\n",PADDR(C));
-    cprintf("the paddr of D: %x\n",PADDR(D));
-    cprintf("the paddr of E: %x\n",PADDR(E));
-
+    uintptr_t B = slub_manager->kmalloc(3);
+    uintptr_t C = slub_manager->kmalloc(1025);
+    uintptr_t D = slub_manager->kmalloc(1111);
+    uintptr_t E = slub_manager->kmalloc(2047);
+    cprintf("alloc 5 bytes: %x\n",PADDR(A));
+    cprintf("alloc 3 bytes: %x\n",PADDR(B));
+    cprintf("alloc 1025 bytes: %x\n",PADDR(C));
+    cprintf("alloc 1111 bytes: %x\n",PADDR(D));
+    cprintf("alloc 2047 bytes: %x\n",PADDR(E));
+    struct Page* page = le2page(kmem_slub_cache[10].node->full_area.next,page_link);
+    uint64_t fulltest = page2pa(page);
+    cprintf("the_first_slab_on_full_list(1024): %x\n",fulltest);
     
+    slub_manager->kmfree(D,1111);
+    page = le2page(kmem_slub_cache[10].node->partial_area.next,page_link);
+    uint64_t partialtest = page2pa(page);   
+    cprintf("the_first_slab_on_partial_list(1024): %x\n",partialtest);
+    slub_manager->kmfree(C,1025);
+    if(kmem_slub_cache[10].node->partial_area.next == &kmem_slub_cache[10].node->partial_area)
+    {
+        cprintf("empty partial list\n");   
+    }
+
+    cprintf("current cpu_free_list of 8bytes slab: %x\n",PADDR(kmem_slub_cache[2].cpu->free_blocks));
+    slub_manager->kmfree(A,5);
+    cprintf("cpu_free_list of 8bytes slab after free: %x\n",PADDR(kmem_slub_cache[2].cpu->free_blocks));
     asm volatile ("ebreak");
 }
 
