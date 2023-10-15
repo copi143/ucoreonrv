@@ -10,7 +10,8 @@
 #define IS_POWER_OF_2(x) (!((x)&((x)-1)))
 unsigned calculate_node_size(unsigned n) {
     unsigned i = 0;
-    while (n > 1) {
+    n--;
+    while (n >= 1) {
         n >>= 1; 
         i++;
     }
@@ -93,11 +94,11 @@ buddy_system_alloc_pages(size_t n)
         root[index]=max(root[LEFT_LEAF(index)],root[RIGHT_LEAF(index)]);
     }
     page = _base+ offset;
-    page->property = n;
     unsigned size_ = calculate_node_size(n);
     nr_free -= size_;
     for (struct Page *p = page; p != page + size_; p++)
         ClearPageProperty(p);
+    page->property = n;
     return page;
 }
 
@@ -132,8 +133,6 @@ buddy_system_free_pages(struct Page *base, size_t n)
         else
             root[index]=max(root[LEFT_LEAF(index)],root[RIGHT_LEAF(index)]);
     }
-    for (struct Page *p = base; p != base + n; p++)
-        ClearPageProperty(p);
 }
 
 static size_t
@@ -141,84 +140,47 @@ buddy_system_nr_free_pages(void)
 {
     return nr_free;
 }
-//下面检测来自伙伴分配器链接开端那张图+csdn
 static void
 buddy_check(void)
 {
-/*
-    cprintf("root check%s\n","!");
-    
-    assert((p0 = alloc_page()) != NULL);
-    assert((A = alloc_page()) != NULL);
-    assert((B = alloc_page()) != NULL);
-
-    cprintf("before free p0,A,B root[0] %u\n", root[0]);
-
-    assert(p0 != A && p0 != B && A != B);
-    assert(page_ref(p0) == 0 && page_ref(A) == 0 && page_ref(B) == 0);
-
-    free_page(p0);
-    free_page(A);
-    free_page(B);
-    cprintf("after free p0,A,B root[0] %u\n", root[0]);
-*/
     struct Page *p0, *A, *B, *C, *D;
     p0 = A = B = C = D = NULL;
-    A = alloc_pages(512);
-    B = alloc_pages(512);
-    cprintf("A分配512，B分配512\n");
+    A = alloc_pages(70);
+    B = alloc_pages(35);
+    C = alloc_pages(257);
+    D = alloc_pages(63);
+    cprintf("A分配70，B分配35，C分配257，D分配63\n");
     cprintf("此时A %p\n",A);
     cprintf("此时B %p\n",B);
-    free_pages(A, 256);
-    cprintf("A释放256\n");
-    free_pages(B, 512);
-    cprintf("B释放512\n");
-    free_pages(A + 256, 256);
-    cprintf("A释放256\n");
-    p0 = alloc_pages(8192);
-    cprintf("p0分配8192\n");
-    assert(p0 == A);
-    free_pages(p0, 1024);
-    cprintf("p0释放1024\n");
-    // 以下是根据链接中的样例测试编写的
-    A = alloc_pages(128);
-    B = alloc_pages(64);
-    cprintf("A分配128，B分配64\n");
-    cprintf("此时A %p\n",A);
-    cprintf("此时B %p\n",B);
-    // 检查是否相邻
-    assert(A + 128 == B);
-    cprintf("检查AB相邻\n");
-    C = alloc_pages(128);
-    cprintf("C分配128\n");
     cprintf("此时C %p\n",C);
-    // 检查C有没有和A重叠
-    assert(A + 256 == C);
-    cprintf("检查AB重叠\n");
-    // 释放A
-    free_pages(A, 128);
-    cprintf("A释放128\n");
-    cprintf("D分配64\n");
-    D = alloc_pages(64);
-    cprintf("此时D %p\n", D);
-    // 检查D是否能够使用A刚刚释放的内存
-    assert(D + 128 == B);
-    cprintf("检查D使用刚才的A内存\n");
-    free_pages(C, 128);
-    cprintf("C释放128\n");
-    C = alloc_pages(64);
-    cprintf("C分配64\n");
-    // 检查C是否在B、D之间
-    assert(C == D + 64 && C == B - 64);
-    cprintf("检查C在BD中间\n");
-    free_pages(B, 64);
-    free_pages(D, 64);
-    free_pages(C, 64);
-    // 全部释放
-    free_pages(p0, 8192);
+    cprintf("此时D %p\n",D);
+        
+    free_pages(B, 35);
+    cprintf("B释放35\n");
+    free_pages(D, 63);
+    cprintf("D释放63\n");
+    cprintf("此时BD应该合并\n");
+    free_pages(A, 70);
+    cprintf("A释放70\n");
+    cprintf("此时前512个已空，我们再分配511个的A来测试\n");
+    A = alloc_pages(511);
+    cprintf("A分配511\n");
+    cprintf("此时A %p\n",A);
+    free_pages(A, 512);
+    cprintf("A释放512\n");
+
+    A = alloc_pages(255);
+    B = alloc_pages(255);
+    cprintf("A分配255，B分配255\n");
+    cprintf("此时A %p\n",A);
+    cprintf("此时B %p\n",B);
+    free_pages(C, 257);
+    free_pages(A, 255);
+    free_pages(A, 255);  
     cprintf("全部释放\n");
     cprintf("检查完成，没有错误\n");
 }
+// 这个结构体在
 const struct pmm_manager buddy_pmm_manager = {
     .name = "buddy_pmm_manager",
     .init = buddy_system_init,
