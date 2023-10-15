@@ -518,4 +518,42 @@ slub算法，实现两层架构的高效内存单元分配，第一层是基于�
 
 3. **物理内存映射文件**（Physical Memory Mapping File）：操作系统可以通过创建一个特殊的文件，将物理内存映射到该文件中。然后，操作系统可以读取该文件的内容以获取有关物理内存范围的信息。这种方法常用于调试和诊断目的，需要特权级的访问权限。
 
+### 一个例子
+我在git上闲逛的时候，发现一个和我们实验差不多的一个实验，那个里面提供了一种策略，就是通过BIOS中断调用来帮助完成的。
+一般来说，获取内存大小的方法由BIOS中断调用和直接探测两种。BIOS中断调用方法是一般只能在实模式下完成，而直接探测方法必须在保护模式下完成。这里我们采用前者来看看具体实现探测的代码。
+
+```
+probe_memory:
+movl $0, 0x8000 //对0x8000处的32位单元清零,即给位于0x8000处的struct e820map的成员变量nr_map清零
+xorl %ebx, %ebx
+movw $0x8004, %di //表示设置调用INT 15h BIOS中断后，BIOS返回的映射地址描述符的起始地址
+start_probe:
+movl $0xE820, %eax //INT 15的中断调用参数
+movl $20, %ecx //设置地址范围描述符的大小为20字节，其大小等于struct e820map的成员变量map的大小
+movl $SMAP, %edx //设置edx为534D4150h (即4个ASCII字符“SMAP”)，这是一个约定
+int $0x15 //调用int 0x15中断，要求BIOS返回一个用地址范围描述符表示的内存段信息
+jnc cont //如果eflags的CF位为0，则表示还有内存段需要探测
+movw $12345, 0x8000 //探测有问题，结束探测
+jmp finish_probe
+cont:
+addw $20, %di //设置下一个BIOS返回的映射地址描述符的起始地址
+incl 0x8000 //递增struct e820map的成员变量nr_map
+cmpl $0, %ebx //如果INT0x15返回的ebx为零，表示探测结束，否则继续探测
+jnz start_probe
+finish_probe:
+```
+上述代码正常执行完毕后，在0x8000地址处保存了从BIOS中获得的内存分布信息，此信息按照结构e820map的设置来进行填充。这部分信息将在bootloader启动ucore后，可以由ucore的page_init函数来根据e820map的memmap（定义了起始地址为0x8000）来完成对整个机器中的物理内存的总体管理。
+具体的e820map数据结构如下:
+```
+struct e820map {
+    int nr_map;
+    struct {
+        long long addr;
+        long long size;
+        long type;
+        } map[E820MAX];
+};
+```
+简而言之，就是利用BIOS中断功能，BIOS中断提供一个检索内存的功能，会返回一个结构体到你指定的位置。
+
 > Challenges是选做，完成Challenge的同学可单独提交Challenge。完成得好的同学可获得最终考试成绩的加分。
