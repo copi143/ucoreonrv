@@ -32,7 +32,19 @@ struct pmm_manager {
     void (*check)(void);            // check the correctness of XXX_pmm_manager
 };
 
+struct slub_manager {
+    const char *name;  // XXX_pmm_manager's name
+    void (*init)(
+        void);  // initialize internal description&management data structure
+                // (free block list, number of free block) of XXX_pmm_manager
+    uintptr_t (*kmalloc)(
+        size_t n);
+    void (*kmfree)(uintptr_t base, size_t n);
+    void (*check)(void);  
+};
+
 extern const struct pmm_manager *pmm_manager;
+extern const struct slub_manager *slub_manager;
 
 void pmm_init(void);
 

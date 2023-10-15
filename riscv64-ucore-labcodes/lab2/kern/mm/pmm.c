@@ -10,6 +10,7 @@
 #include <string.h>
 #include <../sync/sync.h>
 #include <riscv.h>
+#include<slub.h>
 
 // virtual address of physical page array
 struct Page *pages;
@@ -28,6 +29,7 @@ uintptr_t satp_physical;
 
 // physical memory management
 const struct pmm_manager *pmm_manager;
+const struct slub_manager *slub_manager;
 
 
 static void check_alloc_page(void);
@@ -129,8 +131,14 @@ void pmm_init(void) {
     // then use pmm->init_memmap to create free page list
     page_init();
 
+    /*start slub*/
+    slub_manager = &myslub;
+    slub_manager->init();
+
     // use pmm->check to verify the correctness of the alloc/free function in a pmm
     check_alloc_page();
+
+    slub_manager->check();
 
     extern char boot_page_table_sv39[];
     satp_virtual = (pte_t*)boot_page_table_sv39;
