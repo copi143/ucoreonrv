@@ -571,7 +571,7 @@ loader_start:
 	mov edx, 0x534d4150  ; edx需要赋值一次
 	mov di,  ards_buf    ; di 需要给到保存ARDS的地址
 .e820_mem_get_loop:      ; 循环获取每个ARDS内存范围描述结构
-	mov eax, 0x0000e820  ; 执行int 0x15后，eax值变为0x534d4150，所以没次都需要更新子功能号
+	mov eax, 0x0000e820  ; 执行int 0x15后，eax值变为0x534d4150，所以每次都需要更新子功能号
 	mov ecx, 20          ; ARDS描述符结构大小是20字节
 	int 0x15
 	jc .e820_failed_so_try_e801 ;判断CF是否出错    
