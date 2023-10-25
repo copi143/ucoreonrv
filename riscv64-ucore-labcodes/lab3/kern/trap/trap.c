@@ -13,7 +13,8 @@
 #include <sbi.h>
 
 #define TICK_NUM 100
-
+volatile size_t num=0;
+int times=0;
 static void print_ticks() {
     cprintf("%d ticks\n", TICK_NUM);
 #ifdef DEBUG_GRADE
@@ -148,8 +149,13 @@ void interrupt_handler(struct trapframe *tf) {
             // directly.
             // clear_csr(sip, SIP_STIP);
             clock_set_next_event();
-            if (++ticks % TICK_NUM == 0) {
-                print_ticks();
+            ticks++;
+            if (ticks % TICK_NUM == 0) {
+            print_ticks();
+            times++;
+            }
+            if(times==10){
+                sbi_shutdown();
             }
             break;
         case IRQ_H_TIMER:
@@ -187,10 +193,14 @@ void exception_handler(struct trapframe *tf) {
             cprintf("Instruction access fault\n");
             break;
         case CAUSE_ILLEGAL_INSTRUCTION:
-            cprintf("Illegal instruction\n");
+            cprintf("Exception type: Illegal instruction\n");  // 输出异常类型
+            cprintf("Illegal instruction caught at 0x%016llx\n", tf->epc);  // 输出异常指令地址
+            tf->epc += 4;  // 更新 tf->epc寄存器
             break;
         case CAUSE_BREAKPOINT:
-            cprintf("Breakpoint\n");
+            cprintf("Exception type: breakpoint\n");  // 输出异常类型
+            cprintf("ebreak caught at 0x%016llx\n", tf->epc);  // 输出异常指令地址
+            tf->epc += 2;  // 更新 tf->epc寄存器
             break;
         case CAUSE_MISALIGNED_LOAD:
             cprintf("Load address misaligned\n");
