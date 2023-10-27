@@ -208,6 +208,87 @@ get_pte()函数（位于`kern/mm/pmm.c`）用于在页表中查找或创建页�
  - get_pte()函数中有两段形式类似的代码， 结合sv32，sv39，sv48的异同，解释这两段代码为什么如此相像。
  - 目前get_pte()函数将页表项的查找和页表项的分配合并在一个函数里，你认为这种写法好吗？有没有必要把两个功能拆开？
 
+##### 问题解答
+###### 关于两段相像代码
+这两段代码的功能都是查询页目录获取下一级页表地址，其逻辑功能相似，代码内容当然相似。sv32、sv39、sv48甚至没应用的sv57，只不过是页表级数的问题而已，分别对应两级、三级、四级、五级页表。本次实验采用的是sv39，有2层页目录，因此有两段相关代码；相似的，sv32仅需要一段即可，sv48则需要3段。
+详细内容请看以下代码解析中的[#两端类似代码的逻辑]
+
+###### 关于页表项的查找和分配
+感觉没什么问题，一般而言，我们要查询页表，都是意味着我们需要这个页，而不是说检查它是否有效。所以一般情况下，查询即意味着要分配。但是我的知识面比较窄，也可能有没注意到的其它应用方式，不过，`get_pte`函数也有一个`create`参数，如果将这个参数设置为0，则不会创建。具体见代码解析中的[#两端类似代码的逻辑]的第4点。
+
+##### 代码实现详细解析
+###### pte和pde
+pte即：page table entry，pde即：page director entry；pde是x86中页表目录的称呼，在riscv中，其实都是页表项(大大页、大页，因为我们有的情况下会直接使用一个大大页或者大页，其实不应该把两者区分开，这个问题稍后再谈论)
+`pte_t`和`pde_t`都是`uintptr_t`的重定义，`uintptr_t`本身是`uint`的重定义。我们在上次实验中也用到了`uintptr_t`，这种类型可以方便指针和整数的转换；有时候，我们希望操作一个指针，这样我们可以访问其指向内存的内容，但有的时候，我们希望对这个指针本身做出修改，这时候，它应该是一个整数。在C/C++中，`int`转为`int*`是会报错的(*error C2440: “初始化”: 无法从“int”转换为“int *”*)，但是使用`uintptr_t`则不会，另外由于`uint`是根据系统位数定义的，所以能够很好解决不同位数的兼容问题。相关代码如下：
+```C
+#if __riscv_xlen == 64
+  typedef uint64_t uint_t;
+#elif __riscv_xlen == 32
+  typedef uint32_t uint_t;
+
+typedef uint_t uintptr_t;
+
+typedef uintptr_t pte_t;
+typedef uintptr_t pde_t;
+```
+
+###### pgdir
+pgdir是大大页的地址，一般由`stap`寄存器传递(体现为`mm->pgdir`)
+这里的`la`是指线性虚拟地址，`PDX1(la)、PDX0(la)、PTX(la)`则是分别获取la大大页的页号、大页的页号以及物理页表的页号，la的结构以及`PDX1、PDX0、PTX`的相关代码如下所示，即通过移位以及按位与操作，获取39-31、30-22、21-13位。
+```C
+// +--------9-------+-------9--------+-------9--------+---------12----------+
+// | Page Directory | Page Directory |   Page Table   | Offset within Page  |
+// |     Index 1    |    Index 2     |                |                     |
+// +----------------+----------------+----------------+---------------------+
+//  \-- PDX1(la) --/ \-- PDX0(la) --/ \--- PTX(la) --/ \---- PGOFF(la) ----/
+//  \-------------------PPN(la)----------------------/
+
+#define PTXSHIFT        12                      // offset of PTX in a linear address
+#define PDX0SHIFT       21                      // offset of PDX0 in a linear address
+#define PDX1SHIFT       30                      // offset of PDX0 in a linear address
+
+#define PDX1(la) ((((uintptr_t)(la)) >> PDX1SHIFT) & 0x1FF)
+#define PDX0(la) ((((uintptr_t)(la)) >> PDX0SHIFT) & 0x1FF)
+#define PTX(la) ((((uintptr_t)(la)) >> PTXSHIFT) & 0x1FF)
+
+pde_t *pdep1 = &pgdir[PDX1(la)];
+```
+###### 两端类似代码的逻辑
+这两段代码的功能都是查询页目录获取下一级页表地址，下图可以直观看出：
+![[sv39虚拟地址访问图.png]]
+
+1. 首先判断页表项是不是有效，如果是有效的，那么只需要将页表项转为一个物理地址，这个物理地址就是下一级页表的地址。具体实现方式如下，先清空页表项的低10位，然后左移两位，就能够得到一个物理地址。
+```C
+#define PTE_ADDR(pte)   (((uintptr_t)(pte) & ~0x3FF) << (PTXSHIFT - PTE_PPN_SHIFT))
+#define PDE_ADDR(pde)   PTE_ADDR(pde)
+pde_t *pdep0 = &((pde_t *)KADDR(PDE_ADDR(*pdep1)))[PDX0(la)];
+```
+2. 如果页表项不是有效的，意味着现在还没有物理页分配。如果`create`标识是`true`则我们分配一个页，无页可以分配或者`create`为`false`的话，则返回`NULL`。
+3. 分配页。首先调用`alloc_page`，这是lab2实现的页面分配算法，然后初始化该页面(设置引用位 + 获取物理地址 + 清空页空间)，接着更新该页表项，具体代码如下：
+```C
+    if (!(*pdep1 & PTE_V)) {                    //invalid page
+        struct Page *page;
+        if (!create || (page = alloc_page()) == NULL) {    //we can't get a page, this alloc_page means get 1 page
+            return NULL;
+        }
+        set_page_ref(page, 1);
+        uintptr_t pa = page2pa(page);
+        memset(KADDR(pa), 0, PGSIZE);
+        *pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V); //user can use
+    }
+```
+
+4. 更新页表项的方式，相关代码如下。`ppn`即物理页号。`page2ppn`可以将一个`page`结构体的指针，转为`ppn_t`类型，具体方式就是用这个`page`指针，减去page结构体的起始指针`pages`，得到其相对与`pages`的页号，但是`pages`对应的物理地址是0x80000000，因此还需要加上0x80000才能得到其真实的物理页号。`pte_create`将得到的物理页号左移10位(并置位)，这样就能够得到一个新的页表项。
+```C
+static inline ppn_t page2ppn(struct Page *page) { return page - pages + nbase; }
+*pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V);
+```
+###### 直接使用大大页和大页
+假设我们并不用大大页和大页作为页表目录，而是直接使用一个大大页和大页作为分配的空间，那么上述代码就失效了。
+首先，我们只能够分配一个page，初始化也只是针对一个page。另外，并没有判断`PTR_X`、`PTR_R`这两个位，根据riscv的硬件手册，如果这两个位被置为1(以及valid位)，就表示找到物理页了，无须再查其它页表。
+
+
+
 #### 练习3：给未被映射的地址映射上物理页（需要编程）
 补充完成do_pgfault（mm/vmm.c）函数，给未被映射的地址映射上物理页。设置访问权限 的时候需要参考页面所在 VMA 的权限，同时需要注意映射物理页时需要操作内存控制 结构所指定的页表，而不是内核的页表。
 请在实验报告中简要说明你的设计实现过程。请回答如下问题：
