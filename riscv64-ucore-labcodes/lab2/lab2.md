@@ -463,6 +463,301 @@ for (node_size = size; node_size != n; node_size /= 2)
 在这里，我查阅了一些资料，并整合了一个胡思乱想的buddy文档，也放在了lab2的仓库里，具体可以去那里查看一下。
 
 
+#### 关于buddy
+根据实验指导书中给出的相关链接，其中提到了：
+
+伙伴分配的实质就是一种特殊的“分离适配”，即将内存按2的幂进行划分，相当于分离出若干个块大小一致的空闲链表，搜索该链表并给出同需求最佳匹配的大小。
+
+算法大体上是：
+
+>分配内存：
+>寻找大小合适的内存块:
+>（大于等于所需大小并且最接近2的幂，比如需要27，实际分配32）
+>>1.  如果找到了，分配给应用程序。
+>>2.  如果没找到，分出合适的内存块。
+>>>1. 对半分离出高于所需大小的空闲内存块
+>>>2. 如果分到最低限度，分配这个大小。
+>>>3. 回溯到步骤1（寻找合适大小的块）
+>>>4. 重复该步骤直到一个合适的块
+
+释放内存：
+
+>释放该内存块
+>>1. 寻找相邻的块，看其是否释放了。
+>>2. 如果相邻块也释放了，合并这两个块，重复上述步骤直到遇上未释放的相邻块，或者达到最高上限（即所有内存都释放了）。
+
+分配器的整体思想：
+
+>通过一个数组形式的完全二叉树来监控管理内存，二叉树的节点用于标记相应内存块的使用状态，高层节点对应大的块，低层节点对应小的块，在分配和释放中我们就通过这些节点的标记属性来进行块的分离合并。如图所示，假设总大小为16单位的内存，我们就建立一个深度为5的满二叉树，根节点从数组下标[0]开始，监控大小16的块；它的左右孩子节点下标[12]，监控大小8的块；第三层节点下标[3-6]监控大小4的块……依此类推。
+
+下面是他的二叉树形象的表示。
+
+![](伙伴分配器.jpg "伙伴分配器")
+上面是它初始化的状态。当他处在分配之后时，可以用下图来表示：
+![](伙伴分配器2.png "伙伴分配器")
+红色圆圈代表着已经分配，纯灰色代表着未分配的节点，这是他们分配了一个256K,128K和64K后的结果。
+那么具体过程是怎样的呢？链接里给出了具体示例：
+1. 首先我们假设我们一个内存块有1024K，当我们需要给A分配70K内存的时候，我们发现1024K的一半大于70K，然后我们就把1024K的内存分成两半，一半512K。
+1. 然后我们发现512K的一半仍然大于70K，于是我们再把512K的内存再分成两半，一半是128K。
+1. 此时，我们发现128K的一半小于70K，于是我们就分配为A分配128K的内存。
+1. 后面的，B，C，D都这样，而释放内存时，则会把相邻的块一步一步地合并起来（合并也必需按分裂的逆操作进行合并）。
+![](buddy.jpg "伙伴分配器")
+#### 必要的证明
+我们下面的代码用到了两个让人难以理解的公式，实现index和offset的换算，这里给出我自己的证明。
+![](计算推导.jpg "计算推导")
+#### 代码实现
+我们结合参考链接和自己的代码来说一下代码实现过程，当然给出的代码都是本实验实现的代码。首先因为 Buddy System 通过树状结构来管理和分配内存页框，可以高效地进行分割和合并，所以无需维护显式的链表结构。
+参考链接使用了一个结构体数据结构buddy2。
+```C
+struct buddy2 {
+  unsigned size;
+  unsigned longest[1];
+};
+```
+这里的成员size表明管理内存的总单元数目，成员longest就是二叉树的节点标记，表明所对应的内存块的空闲单位。而在我们的代码实现里并没有采用这样的结构，而是只使用了root数组代替longest数组，并且只记录根节点的size，这样就省去了大量空间。
+
+下面是定义了一些宏或者辅助函数，用来帮助我们实现树的操作或是buddy的相关操作。
+```C
+#define LEFT_LEAF(index) ((index) * 2 + 1)
+#define RIGHT_LEAF(index) ((index) * 2 + 2)
+#define PARENT(index) ( ((index) + 1) / 2 - 1)
+#define IS_POWER_OF_2(x) (!((x)&((x)-1)))
+unsigned calculate_node_size(unsigned n) {
+    unsigned i = 0;
+    while (n > 1) {
+        n >>= 1; 
+        i++;
+    }
+    return 1 << i; 
+}
+free_area_t free_area;
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#define free_list (free_area.free_list)
+#define nr_free (free_area.nr_free)
+unsigned *root;
+int size;
+struct Page *_base;
+```
+这个初始化函数和参考链接的思路大致相同，也没有任何难点。唯一的细节就是，整个分配器的大小就是满二叉树节点数目，即所需管理内存单元数目的2倍。
+```C
+static void
+buddy_system_init_memmap(struct Page *base, size_t n)
+{
+    assert(n > 0);
+    struct Page *p = base;
+    for (; p != base + n; p++)
+    {
+        assert(PageReserved(p));
+        p->flags = p->property = 0;
+        set_page_ref(p, 0);
+        SetPageProperty(p);
+    }
+    base->property = n;
+    SetPageProperty(base);
+    nr_free += n;
+    _base = base;
+    size =calculate_node_size(n);
+    unsigned node_size = 2*size;
+    root = (unsigned *)(base + size);
+    for (int i = 0; i < 2 * size - 1; ++i)
+    {
+        if (IS_POWER_OF_2(i + 1))
+            node_size /= 2;
+        root[i] = node_size;
+    }
+}
+```
+分配的函数就有的说了。index是二叉树节点索引，offset是相对于最前面的偏移量（我更喜欢这么说，而不是参考链接里面的索引，总觉得说法会造成歧义）。alloc函数首先将n调整到2的幂大小，并检查是否超过最大限度。然后进行适配搜索，深度优先遍历，当找到对应节点后，将其root标记为0，即分离适配的块出来，并转换为内存块索引offset。最后进行回溯，因为小块内存被占用，大块就不能分配了，从而更新父节点之类的。
+```C
+static struct Page *
+buddy_system_alloc_pages(size_t n)
+{
+    assert(n > 0);
+    if (n > nr_free)
+    {
+        return NULL;
+    }
+    struct Page *page = NULL;
+    unsigned index = 0;
+    unsigned node_size;
+    unsigned offset = 0;
+    if (n <= 0)
+        n = 1;
+    else if (!IS_POWER_OF_2(n))
+    {
+        n = calculate_node_size(n);
+    }
+    if (root[index] < n)
+        offset = -1;
+    for (node_size = size; node_size != n; node_size /= 2)
+    {
+        if (root[LEFT_LEAF(index) ] >= n)
+            index =LEFT_LEAF(index) ;
+        else
+            index =RIGHT_LEAF(index) ;
+    }
+    root[index] = 0;
+    offset = (index + 1) * node_size - size;
+    while (index > 0)
+    {
+       index=PARENT(index);
+        root[index]=max(root[LEFT_LEAF(index)],root[RIGHT_LEAF(index)]);
+    }
+    page = _base+ offset;
+    unsigned size_ = calculate_node_size(n);
+    nr_free -= size_;
+    for (struct Page *p = page; p != page + size_; p++)
+        ClearPageProperty(p);
+    page->property = n;
+    return page;
+}
+```
+分配成功后，计算出分配页帧的起始地址 page，并更新其属性 property 为 n。并从 \_base 开始的偏移量为 offset 的页帧开始清除 "property" 标志，以表示这些页帧已被分配。最后更新总的空闲页帧数量 nr\_free，减去分配的页帧数量 size\_。返回指向分配的物理页帧的 struct Page 结构的指针 page，表示成功分配。
+
+释放时候，我们可以根据offset计算出要求的index（不是我们要找的，具体见证明），接着反向回溯，从最后的节点开始一直往上找到root为0的节点，即当初分配块所适配的大小和位置（这才是要求的）。我们将root恢复到原来满状态的值。继续向上回溯，检查是否存在合并的块，依据就是左右子树root的值相加是否等于原空闲块满状态的大小，如果能够合并，就将父节点root标记为相加的和。
+```C
+static void
+buddy_system_free_pages(struct Page *base, size_t n)
+{
+    assert(n > 0);
+    n=calculate_node_size(n);
+    struct Page *p = base;
+    for (; p != base + n; p++)
+    {
+        assert(!PageReserved(p) && !PageProperty(p));
+        set_page_ref(p, 0);
+    }
+    nr_free += n;
+    unsigned offset = base - _base;
+    unsigned node_size = 1;
+    unsigned index = size + offset - 1;
+    while(root[index]){
+        node_size *= 2;
+        if (index == 0)
+            return;
+        index=PARENT(index);
+    }
+    root[index] = node_size;
+    while (index)
+    {
+        index=PARENT(index);
+        node_size *= 2;
+        if (root[LEFT_LEAF(index)] + root[RIGHT_LEAF(index)] == node_size)
+            root[index] = node_size;
+        else
+            root[index]=max(root[LEFT_LEAF(index)],root[RIGHT_LEAF(index)]);
+    }
+}
+```
+以上我们即完成了一个简单的buddy分配算法。
+
+#### 测试样例
+##### 测试样例1
+首先测试网上关于buddy的一个通用的测试样例，具体代码如下：
+```C
+static void
+buddy_check(void)
+{
+    struct Page *p0, *A, *B, *C, *D;
+    p0 = A = B = C = D = NULL;
+    A = alloc_pages(512);
+    B = alloc_pages(512);
+    cprintf("A分配512，B分配512\n");
+    cprintf("此时A %p\n",A);
+    cprintf("此时B %p\n",B);
+    free_pages(A, 256);
+    cprintf("A释放256\n");
+    cprintf("此时A %p\n",A);
+    free_pages(B, 512);
+    cprintf("B释放512\n");
+    free_pages(A + 256, 256);
+    cprintf("A释放256\n");
+    p0 = alloc_pages(8192);
+    cprintf("p0分配8192\n");
+    cprintf("此时p0 %p\n",p0);
+    assert(p0 == A);
+    free_pages(p0, 1024);
+    cprintf("p0释放1024\n");
+    cprintf("此时p0 %p\n",p0);
+    // 以下是根据链接中的样例测试编写的
+    A = alloc_pages(128);
+    B = alloc_pages(64);
+    cprintf("A分配128，B分配64\n");
+    cprintf("此时A %p\n",A);
+    cprintf("此时B %p\n",B);
+    // 检查是否相邻
+    assert(A + 128 == B);
+    cprintf("检查AB相邻\n");
+    C = alloc_pages(128);
+    cprintf("C分配128\n");
+    cprintf("此时C %p\n",C);
+    // 检查C有没有和A重叠
+    assert(A + 256 == C);
+    cprintf("检查AB重叠\n");
+    // 释放A
+    free_pages(A, 128);
+    cprintf("A释放128\n");
+    cprintf("D分配64\n");
+    D = alloc_pages(64);
+    cprintf("此时D %p\n", D);
+    // 检查D是否能够使用A刚刚释放的内存
+    assert(D + 128 == B);
+    cprintf("检查D使用刚才的A内存\n");
+    free_pages(C, 128);
+    cprintf("C释放128\n");
+    C = alloc_pages(64);
+    cprintf("C分配64\n");
+    // 检查C是否在B、D之间
+    assert(C == D + 64 && C == B - 64);
+    cprintf("检查C在BD中间\n");
+    free_pages(B, 64);
+    free_pages(D, 64);
+    free_pages(C, 64);
+    // 全部释放
+    free_pages(p0, 8192);
+    struct Page *p1 = alloc_pages(8192);
+    cprintf("全部释放\n");
+    cprintf("检查完成，没有错误\n");
+}
+```
+测试结果如图所示：
+![](测试1.png "测试1")
+我们看到测试分配释放，以及是否重叠都没有什么问题。
+##### 测试用例2
+这次我们使用上面参考链接给出的示例来测试，结果有一点出入（原因在于参考范例代码和图示策略不一样的原因，参考代码永远优先向左子树分配），但是现在结果是依据我们写的代码进行的，所以也是没有问题。
+![](测试2.png "测试2")
+我上面说的问题就在于D，直接分配了原来A的空间，这是依据分配代码实现的，所以也没有问题。
+##### 测试用例3
+实验指北里给出了一个复杂的样例，让我们来看看它会发生什么。
+```C
+首先申请 p0 p1 p2 p3
+其大小为 70 35 257 63
+
+从前向后分配的块以及其大小 |128(64+64)|64|64|256(128+128)|512|
+其对应的页                |p0        |p1|p3|空          |p2 |
+
+然后释放p1\p3
+
+这时候p1和p3的块应该合并
+
+再释放p0
+
+这时候前512个页已经空了,需要展示合并后的结果
+
+然后我们申请 p4 p5
+其大小为     255 255
+
+那么这时候系统的内存空间是这样的
+|256|256|512|
+|p4 |p5 |p2 | 
+
+最后释放。
+
+```
+
+测试结果如下，没有问题。
+* ![](测试3.png "测试3")
+
 ## 扩展练习Challenge：任意大小的内存单元slub分配算法（需要编程）
 
 slub算法，实现两层架构的高效内存单元分配，第一层是基于页大小的内存分配，第二层是在第一层基础上实现基于任意大小的内存分配。可简化实现，能够体现其主体思想即可。
