@@ -296,6 +296,268 @@ static inline ppn_t page2ppn(struct Page *page) { return page - pages + nbase; }
  - 如果ucore的缺页服务例程在执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
 - 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
 
+##### 结构体vma_struct和mm_struct
+引入两个结构体的重要原因是，page_fault 函数不知道哪些是“合法可用”的虚拟页，所以 ucore 还缺少一定的数据结构来维护”所有可用的虚拟地址/虚拟页的集合“。为此 ucore 通过建立 mm_struct 和 vma_struct 数据结构，描述了 ucore 模拟应用程序运行所需的合法可用的内存空间。
+VMA和MM：
+```C
+// 用于描述某个虚拟页的结构
+struct vma_struct {
+    struct mm_struct *vm_mm; //指向一个比 vma_struct 更高的抽象层次的数据结构 mm_struct
+    uintptr_t vm_start;      // 虚拟页起始地址，包括当前地址  
+    uintptr_t vm_end;        // 虚拟页终止地址，不包括当前地址（地址前闭后开）  
+    uint32_t vm_flags;       // 相关标志位
+    list_entry_t list_link;  // 用于连接各个虚拟页的双向指针
+};
+// 用于表示 VMA 权限标志vm_flags的常量
+#define VM_READ                 0x00000001
+#define VM_WRITE                0x00000002
+#define VM_EXEC                 0x00000004
+
+// 数据结构Page相关成员的用途已在lab2中使用过，这里只提它新增的两个成员pra_*
+struct Page {
+    int ref;
+    uint32_t flags;
+    unsigned int property;
+    list_entry_t page_link;
+    list_entry_t pra_page_link;     // 用于连接上一个和下一个*可交换已分配*的物理页
+    uintptr_t pra_vaddr;            // 用于保存该物理页所对应的虚拟地址。
+};
+
+//链接了所有属于同一页目录表的虚拟内存空间，一个页表对应的信息组合起来
+struct mm_struct {  
+    list_entry_t mmap_list;  //双向链表头，链接了所有属于同一页目录表的虚拟内存空间
+    struct vma_struct *mmap_cache;  //指向当前正在使用的虚拟内存空间
+    pde_t *pgdir; //指向的就是 mm_struct数据结构所维护的页表
+    int map_count; //记录 mmap_list 里面链接的 vma_struct 的个数
+    void *sm_priv; //用于指向swap manager的某个链表
+};  
+```
+简单来说，vma_struct描述的是一段连续的虚拟地址，mm_struct链接了使用同一个页表的所有vma_struct结构，这样我们就可以灵活管理虚拟内存区域。
+
+值得注意的是，这两个结构都有一个双向链表list_entry_t，vma_struct的list_link的作用是把同一个页表对应的多个vma_struct结构体串成一个链表，在链表里把它们按照区间的起始点进行排序，而mmap_list链接了所有属于同一页目录表的虚拟内存空间，个人理解是链表头的作用，fifo初始化代码有使用。
+
+具体的形成的虚拟空间的管理结构如下所示，这张网图通过管理一个mm_struct结构体，可以管理一个页表里所有的虚拟内存空间，并可以通过这个页表映射到对应的物理内存空间上。
+![](mm_struct结构图.png)
+
+##### swap文件一些理解
+两个重要的函数，
+```C
+int swap_in(struct mm_struct *mm, uintptr_t addr, struct Page **ptr_result)
+{
+    // 分配一个物理页面
+    struct Page *result = alloc_page();
+    assert(result != NULL);
+
+    // 获取虚拟地址 addr 对应的页表项 ptep
+    pte_t *ptep = get_pte(mm->pgdir, addr, 0);
+
+    int r;
+    // 从磁盘读取数据并加载到 result 中
+    if ((r = swapfs_read((*ptep), result)) != 0)
+    {
+        assert(r != 0);
+    }
+    // 输出日志，表示已经加载了来自磁盘的数据
+    cprintf("swap_in: load disk swap entry %d with swap_page in vadr 0x%x\n", (*ptep) >> 8, addr);
+
+    // 将加载的物理页面指针返回给调用者
+    *ptr_result = result;
+    return 0;
+}
+int swap_out(struct mm_struct *mm, int n, int in_tick)
+{
+    int i;
+    for (i = 0; i != n; ++i)
+    {
+        uintptr_t v;
+        struct Page *page;
+        // 调用页面置换算法的接口，选择一个要换出的页面
+        int r = sm->swap_out_victim(mm, &page, in_tick);
+        //r=0表示成功找到了可以换出去的页面
+        //要换出去的物理页面存在page里
+        if (r != 0)
+        {
+            cprintf("i %d, swap_out: call swap_out_victim failed\n", i);
+            break;
+        }
+
+        // 获取要换出的物理页面的虚拟地址
+        v = page->pra_vaddr;
+        pte_t *ptep = get_pte(mm->pgdir, v, 0);
+        assert((*ptep & PTE_V) != 0);
+
+        if (swapfs_write((page->pra_vaddr / PGSIZE + 1) << 8, page) != 0)
+        {
+             //尝试把要换出的物理页面写到硬盘上的交换区，返回值不为0说明失败了
+            cprintf("SWAP: failed to save\n");
+            sm->map_swappable(mm, v, page, 0);
+            continue;
+        }
+        else
+        {
+            // 成功将页面写入硬盘，更新页表项并释放物理页面
+            cprintf("swap_out: i %d, store page in vaddr 0x%x to disk swap entry %d\n", i, v, page->pra_vaddr / PGSIZE + 1);
+            *ptep = (page->pra_vaddr / PGSIZE + 1) << 8;
+            free_page(page);
+        }
+        
+        // 由于页表项已更改，需要使 TLB 失效以确保正确的访问
+        tlb_invalidate(mm->pgdir, v);
+    }
+    return i;
+}
+
+```
+swap_in函数只会将目标物理页加载进内存中，而不会修改页表条目。所以相关的标志位设置必须在swap_in函数的外部手动处理。而swap_out函数会先执行swap_out_victim，找出最适合换出的物理页，并将其换出，最后刷新TLB。需要注意的是swap_out函数会在函数内部设置PTE，当某个页面被换出后，PTE会被设置为所换出物理页在硬盘上的偏移。
+一个细节，当PTE所对应的物理页存在于内存中，那么该PTE就是正常的页表条目，可被CPU直接寻址用于转换地址。但当所对应的物理页不在内存时，该PTE就成为swap_entry_t，保存该物理页数据在外存的偏移位置。
+```C
+/*
+ * swap_entry_t
+ * --------------------------------------------
+ * |         offset        |   reserved   | 0 |
+ * --------------------------------------------
+ *           24 bits            7 bits    1 bit
+ * /
+ /* *
+ * swap_offset - takes a swap_entry (saved in pte), and returns
+ * the corresponding offset in swap mem_map.
+ * */
+ * #define swap_offset(entry) ({                                       \
+               size_t __offset = (entry >> 8);                        \
+               if (!(__offset > 0 && __offset < max_swap_offset)) {    \
+                    panic("invalid swap_entry_t = %08x.\n", entry);    \
+               }                                                    \
+               __offset;                                            \
+          })
+
+```
+
+##### 处理页面异常函数（练习三）
+关于页面异常，我从网页上摘抄了下面一段话，
+当启动分页机制以后，如果一条指令或数据的虚拟地址所对应的物理页框不在内存中或者访问的类型有错误（比如写一个只读页或用户态程序访问内核态的数据等），就会发生页错误异常。产生页面异常的原因主要有:
+
+* 目标页面不存在（页表项全为0，即该线性地址与物理地址尚未建立映射或者已经撤销）;
+* 相应的物理页面不在内存中（页表项非空，但Present标志位=0，比如在swap分区或磁盘文件上）
+* 访问权限不符合（此时页表项P标志=1，比如企图写只读页面）
+
+当出现上面情况之一,那么就会产生页面page fault(#PF)异常。产生异常的线性地址存储在 CR2中,并且将是page fault的产生类型保存在 error code 中。
+
+而具体的解决措施简单来说是，对于越权的，直接报错；其他的，分配物理页给它映射。
+所以我们在这个函数应该这么做：
+* 先判断虚拟地址addr对于本进程是否合法
+* 判断错误码合法
+* 分配页，添加映射，替换算法更新
+
+下面给出具体函数的代码，包括我补充的代码（其实实验手册里已经给了）：
+```C
+int
+do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
+    int ret = -E_INVAL;// 初始化返回值为无效值
+    //获取触发pgfault的虚拟地址所在虚拟页vma
+    struct vma_struct *vma = find_vma(mm, addr);
+    pgfault_num++;// 增加页面错误计数
+    // 如果地址不在 mm 的 vma 范围内
+    if (vma == NULL || vma->vm_start > addr) {
+        cprintf("not valid addr %x, and  can not find it in vma\n", addr);
+        goto failed;//跳到失败处理
+    }
+     /* 如果
+     * 1. 写入一个已存在的地址 OR
+     * 2. 写入一个不存在的地址且地址是可写的 OR
+     * 3. 读取一个不存在的地址且地址是可读的
+     * 那么继续处理
+     */
+     //设置页表项所对应的权限
+    uint32_t perm = PTE_U;
+     // 根据 vma 的权限信息确定访问权限，如果可写则设置读写权限
+    if (vma->vm_flags & VM_WRITE) {
+        perm |= (PTE_R | PTE_W);
+    }
+    addr = ROUNDDOWN(addr, PGSIZE);// 将地址按页面大小对齐
+    ret = -E_NO_MEM;// 设置失败返回值为内存不足
+    pte_t *ptep=NULL;
+    /* 
+ *  get_pte : 获取一个页表项 PTE，并返回该 PTE 的内核虚拟地址，为指定的线性地址 la。
+    如果页表中没有此 PTE 条目，此宏或函数会创建一个新的页表。
+ *  pgdir_alloc_page : 调用 alloc_page 和 page_insert 函数来分配一页大小的内存，
+    并建立一个线性地址 la 与物理地址 pa 的映射，同时更新页目录表 pgdir。
+ * 
+ * DEFINES（定义）:
+ *   VM_WRITE  : 如果 vma->vm_flags & VM_WRITE == 1/0，则表示虚拟内存区域可写/不可写。
+ *   PTE_W           0x002                   // 页表/目录项标志位：可写
+ *   PTE_U           0x004                   // 页表/目录项标志位：用户可访问
+ * 
+ * VARIABLES（变量）:
+ *   mm->pgdir : 页目录表，表示一组虚拟内存区域共享的页目录。
+ * 
+ */
+    // 尝试查找 pte，如果 pte 的 PT（Page Table）不存在，则创建 PT。
+    ptep = get_pte(mm->pgdir, addr, 1); 
+    // 如果页表项的内容为0，说明页面不存在，需要分配页面并建立页表项映射
+    if (*ptep == 0) {
+        if (pgdir_alloc_page(mm->pgdir, addr, perm) == NULL) {
+            cprintf("pgdir_alloc_page in do_pgfault failed\n");
+            goto failed;
+        }
+    }
+   else {/* 如果页表项内容不为0，这意味着这是一个交换条目，需要将数据从磁盘加载到内存中，并建立映射
+        * 现在我们认为pte是一个交换条目，那我们应该从磁盘加载数据并放到带有phy addr的页面，
+        * 并将phy addr与逻辑addr映射，触发交换管理器记录该页面的访问情况
+        *
+        *  宏或函数:
+        *    swap_in(mm, addr, &page) : 分配一个内存页，然后根据
+        *    PTE中的swap条目的addr，找到磁盘页的地址，将磁盘页的内容读入这个内存页
+        *    page_insert ： 建立一个Page的phy addr与线性addr la的映射
+        *    swap_map_swappable ： 设置页面可交换
+        */
+        if (swap_init_ok) {
+            struct Page *page = NULL;
+            //在swap_in()函数执行完之后，page保存换入的物理页面。
+            //swap_in()函数里面可能把内存里原有的页面换出去
+            swap_in(mm,addr,&page);//（1）根据 mm 和 addr，尝试将正确的磁盘页内容加载到由 page 管理的内存中。
+            page_insert(mm->pgdir,page,addr,perm);//更新页表，插入新的页表项
+            // （2）根据 mm、addr 和 page，建立物理地址 <--> 逻辑地址的映射。
+            swap_map_swappable(mm,addr,page,1);// 设置页面为可交换
+            page->pra_vaddr = addr;
+        } else {
+            cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);
+            goto failed;
+        }
+   }
+   ret = 0;
+failed:
+    return ret;
+}
+```
+其实，这个函数也是实现了我们的`页面换入`功能，具体来说，需要先检查产生访问异常的地址是否属于某个vma表示的合法虚拟地址，然后根据 vma 的权限信息确定访问权限，最后查找PTE，如果页表项的内容不是，则执行swap_in() 函数换入页面。
+具体的页面换出功能，我将在练习4具体阐述。
+下面就本练习的几个思考题做出本人自己的理解。
+ - 请描述页目录项（Page Directory Entry）和页表项（Page Table Entry）中组成部分对ucore实现页替换算法的潜在用处。
+
+翻译一下这个问题，即PDE和PTE结构与其标志位用途。这里不同于X86，貌似PD是多级页表中较高级别的页表，其实两者的结构是一样的，都是SV39页表项的结构，所以这里我统一称作PTE。下面我查阅了手册里关于SV39的PTE的结构图：
+![SV39](SV39.png)
+手册里没有给出SV39每一位的具体解释，都是我们知道它和 Sv32 完全相同，只是 PPN 字段被扩展到了44 位，以支持 56 位的物理地址，所以这里把SV32的解释拿了过来，也是同样适用的。
+![SV39解释](SV39解释.png)
+首先这里有很多与权限相关的位，这些和权限相关的位可以用来增强ucore的内存保护机制。其次，表项中保留了2位供操作系统进行使用，可以为实现一些页替换算法的时候提供支持，并且事实上在PTE_P位（这里的V位）为0的时候，CPU将不会使用PTE上的内容，这就使得当PTE_P位为0的时候，可以使用PTE上的其他位用于保存操作系统需要的信息，事实上ucore也正是利用这些位来保存页替换算法里被换出的物理页的在交换分区中的位置。此外PTE中还有D位，用于表示当前的页是否经过修改写入，这就使得OS可以使用这个位来判断是否可以省去某些已经在外存中存在着，内存中的数据与外存相一致的物理页面换出到外存这种多余的操作。同时，PTE有表示是否被使用过的A位，这就使得OS可以粗略地得知当前的页面是否具有着较大的被访问概率，使得OS可以利用程序的局部性原理来对也替换算法进行优化。
+>当然，Enhanced Clock算法可能对这个体现的最为明显，
+对于每个页面都有两个标志位，分别为使用位和修改位，记为<使用,修改>。换出页的使用位必须为0，并且算法优先考虑换出修改位为零的页面。
+当内存页被访问后，MMU 将在对应的页表项的 PTE_A 这一位设为1；
+当内存页被修改后，MMU 将在对应的页表项的 PTE_D 这一位设为1。
+
+ - 如果ucore的缺页服务例程在执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
+
+这里感觉回到了LAB1，回到了中断异常的相关处理。因此翻阅了一下LAB1的材料，截得两段：
+
+![](异常处理.png)
+![](sscause.png)
+引起页异常的线性地址会在异常之后被硬件自动赋给STVAL寄存器，scause寄存器会记录对应的错误类型，这里由上图可以看到是12,13,14。发生 Page Fault 时的指令执行位置，保存在 sepc寄存器 中。其他合法的 VMA 映射关系还会保存在原来的链表里。
+
+接下来就会中断异常要执行的正常的一些操作（这里是LAB1的内容，保存恢复之类的），这里最重要的就是依次执行trap–> trap_dispatch–>pgfault_handler–>do_pgfault这样的调用关系去页面置换来处理这个异常，最后还是LAB1那些操作。
+
+- 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
+
+pages每一项记录一个物理页的信息，而我们页表正是反映的一个从虚拟地址到物理地址的映射关系，页表项（这里是狭义上最小的页的页表项）正是记录了物理页编号，对应这每一个pages中的物理页。当然，前提是这个页表项PTE_P为1.
+
 #### 练习4：补充完成Clock页替换算法（需要编程）
 通过之前的练习，相信大家对FIFO的页面替换算法有了更深入的了解，现在请在我们给出的框架上，填写代码，实现 Clock页替换算法（mm/swap_clock.c）。
 请在实验报告中简要说明你的设计实现过程。请回答如下问题：
