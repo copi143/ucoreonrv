@@ -244,18 +244,18 @@ pte_t *get_pte(pde_t *pgdir, uintptr_t la, bool create) {
      *   PTE_U           0x004                   // page table/directory entry
      * flags bit : User can access
      */
-    pde_t *pdep1 = &pgdir[PDX1(la)];
-    if (!(*pdep1 & PTE_V)) {
+    pde_t *pdep1 = &pgdir[PDX1(la)];            //find la huge page entry
+    if (!(*pdep1 & PTE_V)) {                    //invalid page
         struct Page *page;
-        if (!create || (page = alloc_page()) == NULL) {
+        if (!create || (page = alloc_page()) == NULL) {    //we can't get a page, this alloc_page means get 1 page
             return NULL;
         }
         set_page_ref(page, 1);
         uintptr_t pa = page2pa(page);
         memset(KADDR(pa), 0, PGSIZE);
-        *pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V);
+        *pdep1 = pte_create(page2ppn(page), PTE_U | PTE_V); //user can use
     }
-    pde_t *pdep0 = &((pde_t *)KADDR(PDE_ADDR(*pdep1)))[PDX0(la)];
+    pde_t *pdep0 = &((pde_t *)KADDR(PDE_ADDR(*pdep1)))[PDX0(la)];    //find la big page entry
 //    pde_t *pdep0 = &((pde_t *)(PDE_ADDR(*pdep1)))[PDX0(la)];
     if (!(*pdep0 & PTE_V)) {
     	struct Page *page;
