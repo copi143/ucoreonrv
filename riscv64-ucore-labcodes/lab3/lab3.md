@@ -319,7 +319,7 @@ struct Page {
     uint32_t flags;
     unsigned int property;
     list_entry_t page_link;
-    list_entry_t pra_page_link;     // 用于连接上一个和下一个*可交换已分配*的物理页
+    list_entry_t pra_page_link;     // 用于加入访问情况的链表用到的指针
     uintptr_t pra_vaddr;            // 用于保存该物理页所对应的虚拟地址。
 };
 
