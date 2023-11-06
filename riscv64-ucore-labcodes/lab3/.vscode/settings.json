@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "sync.h": "c",
+        "vmm.h": "c",
+        "string.h": "c",
+        "sbi.h": "c",
+        "pmm.h": "c",
+        "memlayout.h": "c",
+        "mmu.h": "c"
+    }
+}

@@ -489,7 +489,7 @@ static void check_boot_pgdir(void) {
 
     cprintf("check_boot_pgdir() succeeded!\n");
 }
-
+//根据字节数分配地址，这个版本只是分配整数页，可以将之前实现的slub拿过来
 void *kmalloc(size_t n) {
     void *ptr = NULL;
     struct Page *base = NULL;

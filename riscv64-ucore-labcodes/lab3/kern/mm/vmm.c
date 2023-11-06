@@ -202,7 +202,7 @@ check_vma_struct(void) {
 
     int i;
     for (i = step1; i >= 1; i --) {
-        struct vma_struct *vma = vma_create(i * 5, i * 5 + 2, 0);
+        struct vma_struct *vma = vma_create(i * 5, i * 5 + 2, 0);//这里是50~66?这个地址是虚拟地址吗?
         assert(vma != NULL);
         insert_vma_struct(mm, vma);
     }
@@ -269,6 +269,10 @@ check_pgfault(void) {
     assert(pgdir[0] == 0);
 
     struct vma_struct *vma = vma_create(0, PTSIZE, VM_WRITE);
+
+    cprintf("my_debug: 0~2MiB的vma已经创建\n");
+    char* my_vma_name = "0~2MiB的vma";
+    print_vma(my_vma_name,vma);
 
     assert(vma != NULL);
 
@@ -348,7 +352,7 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
      */
     uint32_t perm = PTE_U;
     if (vma->vm_flags & VM_WRITE) {
-        perm |= (PTE_R | PTE_W);
+        perm |= (PTE_R | PTE_W);//if the v_addr is writable then the page is writable
     }
     addr = ROUNDDOWN(addr, PGSIZE);
 
@@ -377,6 +381,10 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
     ptep = get_pte(mm->pgdir, addr, 1);  //(1) try to find a pte, if pte's
                                          //PT(Page Table) isn't existed, then
                                          //create a PT.
+
+    cprintf("my_debug: get pte 0x%x of addr0x%x\n",*ptep,addr);
+    
+
     if (*ptep == 0) {
         if (pgdir_alloc_page(mm->pgdir, addr, perm) == NULL) {
             cprintf("pgdir_alloc_page in do_pgfault failed\n");

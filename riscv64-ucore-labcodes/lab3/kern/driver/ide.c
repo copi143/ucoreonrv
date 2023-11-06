@@ -9,9 +9,9 @@
 
 void ide_init(void) {}
 
-#define MAX_IDE 2
-#define MAX_DISK_NSECS 56
-static char ide[MAX_DISK_NSECS * SECTSIZE];
+#define MAX_IDE 2             //最多两个ide设备
+#define MAX_DISK_NSECS 56     //每个ide设备最多是56个扇区
+static char ide[MAX_DISK_NSECS * SECTSIZE];//每个ide的空间大小是56 × 512B，这是个模拟了
 
 bool ide_device_valid(unsigned short ideno) { return ideno < MAX_IDE; }
 
