@@ -191,7 +191,7 @@ get_pid(void) {
     static_assert(MAX_PID > MAX_PROCESS);
     struct proc_struct *proc;
     list_entry_t *list = &proc_list, *le;
-    //next_safe和last_pid两个变量，这里需要注意！ 它们是static全局变量！！！
+    //next_safe和last_pid两个变量，这里需要注意的是，它们是static全局变量，每一次调用这个函数的时候，这两个变量的数值之间的取值均是合法的 pid（也就是说没有被使用过）
     static int next_safe = MAX_PID, last_pid = MAX_PID;
     //++last_pid>=MAX_PID,说明pid分到了最后一个，需要从1重新再来
     if (++ last_pid >= MAX_PID) {
@@ -206,9 +206,9 @@ get_pid(void) {
         while ((le = list_next(le)) != list) {//这里相当于循环链表的操作
             proc = le2proc(le, list_link);
             if (proc->pid == last_pid) {
-                //如果proc的pid与last_pid相等，即这个pid被其他进程占用，则将last_pid加1，重新检查（这里就是核心）
+                //如果proc的pid与last_pid相等，即这个pid被其他进程占用，则将last_pid加1，重新检查
                 //如果又发生了last_pid+1 >= next_safe，next_safe就要变为最后一个，重新循环
-                //当然这里如果在前两者基础上出现了last_pid>=MAX_PID,和上面一样重新再来
+                //当然这里如果在前两者基础上出现了last_pid>=MAX_PID,相当于直接从整个区间重新再来
                 if (++ last_pid >= next_safe) {
                     if (last_pid >= MAX_PID) {
                         last_pid = 1;
@@ -217,7 +217,7 @@ get_pid(void) {
                     goto repeat;
                 }
             }
-            //last_pid<proc->pid<next_safe，确保最后能够找到这么一个满足条件的区间[last_pid,min(next_safe, proc->pid)) 尚未被占用，获得合法的pid
+            //如果last_pid<proc->pid<next_safe，确保最后能够找到这么一个满足条件的区间[last_pid,min(next_safe, proc->pid)) 尚未被占用，获得合法的pid范围，取区间第一个作为返回值
             else if (proc->pid > last_pid && next_safe > proc->pid) {
                 next_safe = proc->pid;
             }
@@ -233,13 +233,13 @@ get_pid(void) {
 ```
 所以这里的断言不会出现部分PROCESS无ID可分的情况。
 接着他的循环其实就是在构建了一个区间，通过确认没有进程的 id 在这个区间内部，来分配一个合适的 pid。
+这里我们必须要注意的是next_safe和last_pid两个变量是静态的局部变量，他们其实在每一次函数调用前，是上一次保留的结果，也就意味着这两个变量的数值之间的取值均是合法的 pid。
 然后这里分以下情况说明是唯一的：
-- 在函数get_pid中，如果静态成员last_pid小于next_safe，则当前分配的last_pid一定是安全的，即唯一的PID，直接返回。
-- 但如果last_pid大于等于next_safe，或者last_pid的值超过MAX_PID，则当前的last_pid就不一定是唯一的PID，此时就需要遍历proc_list，检查当前的 last_pid 是否已经被其他进程占用，如果占用就加一重新检查，去寻找合适的[last_pid,min(next_safe, proc->pid))的这样的一个区间。
+- 在函数get_pid中，如果静态成员last_pid+1小于next_safe，则当前分配的last_pid+1一定是安全的，即唯一的PID，直接返回。具体理由就是上面的他其实是上一次调用的结果。
+- 但如果last_pid+1大于等于next_safe，或者last_pid+1的值超过MAX_PID，则当前的last_pid就不一定是安全的PID，此时就需要遍历proc_list，去寻找新的合适的区间。if (proc->pid == last_pid)分支用来检查当前的 last_pid 是否已经被其他进程占用，如果已经被占用就last_pid加一在新的区间里重新检查，这里检查的基础就是新区间last_pid不能超过next_safe和MAX_PID，前者会让next_safe回到大区间的末端重新遍历链表，后者会在前者的基础上让last_pid回到大区间的开始，相当于回到了第一次初始化从MAX_PID个区间重新遍历链表。如果last_pid\<proc->pid<next_safe，我们就让next_safe（他这头是开区间）变成proc->pid，（这是因为last_pid到next_safe的区间存在了proc->pid这个已经被使用的值，所以我们要把区间的末端缩小到proc->pid前面，把它摒弃在外面），当我们彻底循环完一次链表后（这里就意味着完全遍历一次链表没有发生意外，否则就要回到repeat更改区间值重新遍历），得到的就是一个非常可靠的区间，同时也能为下一次使用。这个区间就是[last_pid,next_safe) 。
+最后返回区间的第一个last_pid就是我们需要的。之所以返回第一个，是因为我们下一次不如意外的话可以直接加一使用第二个。
 
-最后返回last_pid就是我们需要的。
-
-（未完待续。。。）
+（这里不太好讲，讲的有点抽象，简单来说就是寻找一个区间，在能完全遍历完链表且不发生意外的情况下，不断缩小这个区间，得到就是安全区间）
 
 
 
