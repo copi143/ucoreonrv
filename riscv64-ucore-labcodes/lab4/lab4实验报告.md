@@ -327,5 +327,51 @@ proc_run用于将指定的进程切换到CPU上运行。它的大致执行步骤
 说明语句`local_intr_save(intr_flag);....local_intr_restore(intr_flag);`是如何实现开关中断的？
 
 
+首先回顾lab1的一个知识，
+`sstatus`寄存器(Supervisor Status Register)里面有一个二进制位`SIE`(supervisor interrupt enable，在RISCV标准里是2^1 对应的二进制位)，数值为0的时候，如果当程序在S态运行，将禁用全部中断。
 
+所以实现禁止中断就是使得SIE为0，恢复就是使得SIE为1。
+
+下面我从函数调用的最里层开始说起，这里intr_disable函数实现的就是SIE置0（即禁止中断），intr_enable实现的就是SIE置1（即恢复中断）。
+```C
+/* intr_enable - enable irq interrupt */
+void intr_enable(void) { set_csr(sstatus, SSTATUS_SIE); }
+
+/* intr_disable - disable irq interrupt */
+void intr_disable(void) { clear_csr(sstatus, SSTATUS_SIE); }
+```
+
+接着我们回到这两个函数定义的地方，__intr_save实现的就是我们这里的保存中断，先判断我们的SSTATUS_SIE是否为1，如果是我们就调用intr_disable禁止中断，并返回1，最终保存在bool变量intr_flag里，这个标志就是判断我们是否在这里真正的把中断禁止了，如果没有调用intr_disable函数即本身就是禁止中断的，我们就返回0。__intr_restore函数就是恢复中断，他会根据intr_flag来判断是否恢复中断，如果原来调用了intr_disable()函数我们就用intr_enable()恢复，如果原来就是禁止中断的，我们就不必恢复。
+
+这里的参数的作用就是来恢复到我们原来的中断，如果是本身是禁止中断的，这边什么都不需要操作，一直保持这种状态就很好，否则我们就要在需要原子操作的时候暂时性的禁止中断。
+```C++
+static inline bool __intr_save(void) {//保存中断
+    if (read_csr(sstatus) & SSTATUS_SIE) {//如果中断使能
+        intr_disable();//禁止中断
+        return 1;
+    }
+    return 0;
+}
+
+static inline void __intr_restore(bool flag) {
+    if (flag) {
+        intr_enable();//恢复中断
+    }
+}
+
+#define local_intr_save(x) \
+    do {                   \
+        x = __intr_save(); \
+    } while (0)
+#define local_intr_restore(x) __intr_restore(x);
+```
+
+这一题其实是lab2的指导手册出现过的内容，当时手册里还提出了一个问题，就是这里使用do{}while(0)的作用，这里我在实验报告里给一下答案。
+
+宏定义中do{ }while(0)
+（1）空的宏定义避免warning:
+（2）存在一个独立的block，可以用来进行变量定义，进行比较复杂的实现。
+（3）如果出现在判断语句过后的宏，这样可以保证作为一个整体来是实现
+
+简而言之，用lab2指导手册的话来说，这里主要两个功能，一个是保存 sstatus寄存器中的中断使能位(SIE)信息并屏蔽中断的功能，另一个是根据保存的中断使能位信息来使能中断的功能。
 
