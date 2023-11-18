@@ -31,8 +31,64 @@ alloc_proc函数（位于kern/process/proc.c中）负责分配并返回一个新
         memset(proc->name, 0, PROC_NAME_LEN);
 ```
 
+proc_struct中`struct context context`表示进程执行的上下文，具体来说，结构体`struct context`中包含了ra，sp，s0~s11共14个寄存器，这些寄存器的值用于在进程切换中还原之前进程的运行状态。而之所以不需保存所有寄存器，是利用了编译器对于函数的处理。我们知道寄存器可以分为调用者保存（caller-saved）寄存器和被调用者保存（callee-saved）寄存器。因为线程切换是在一个函数`void switch_to(struct context *from, struct context *to)`（定义在riscv64-ucore-labcodes\lab4\kern\process\switch.S）当中实现的，所以编译器会自动帮助我们生成保存和恢复调用者保存寄存器的代码，在实际的进程切换过程中我们只需要保存被调用者保存寄存器即可。
 
+`struct trapframe *tf`表示进程的中断帧，当进程从用户空间跳进内核空间的时候，进程的执行状态被保存在了中断帧中。但本次实验仅实现了内核线程的管理，因此要想理解`struct trapframe *tf`在本实验中的作用，先来看一下我们是如何创建并切换到第1个内核线程 initproc：
 
+在创建 initproc 时，`kernel_thread`函数采用了局部变量tf来放置保存内核线程的临时中断帧，并把中断帧tf的指针传递给`do_fork`函数，而`do_fork`函数会调用`copy_thread`函数:
+
+```c
+static void
+copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
+    proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE - sizeof(struct trapframe));
+    *(proc->tf) = *tf;
+
+    // Set a0 to 0 so a child process knows it's just forked
+    proc->tf->gpr.a0 = 0;
+    proc->tf->gpr.sp = (esp == 0) ? (uintptr_t)proc->tf : esp;
+
+    proc->context.ra = (uintptr_t)forkret;
+    proc->context.sp = (uintptr_t)(proc->tf);
+}
+```
+`copy_thread`函数在新创建的进程内核栈上专门给进程的中断帧分配了一块空间，然后将进程的中断帧中的a0寄存器（返回值）设置为0，说明这个进程是一个子进程。之后将上下文中的ra（返回地址）设置为了forkret函数的入口，所以在上下文切换后会返回到forkret函数。`copy_thread`函数还把trapframe放在上下文的栈顶，而forkret函数把trapframe传给了forkrets：
+
+```c
+static void
+forkret(void) {
+    forkrets(current->tf);
+}
+```
+forkrets再把传进来的参数，也就是进程的中断帧放在了sp：
+```
+    .globl forkrets
+forkrets:
+    # set stack to this new process's trapframe
+    move sp, a0
+    j __trapret
+```
+这样在__trapret中就可以直接从中断帧里面恢复所有的寄存器：
+```
+__trapret:
+    RESTORE_ALL
+    # go back from supervisor call
+    sret
+```
+
+我们在初始化的时候还将中断帧epc寄存器指向`kernel_thread_entry`，在`kernel_thread_entry`函数中：
+
+```
+.text
+.globl kernel_thread_entry
+kernel_thread_entry:        # void kernel_thread(void)
+    move a0, s1
+    jalr s0
+
+    jal do_exit
+```
+其中s0寄存器里放的是新进程要执行的函数，s1寄存器里放的是传给函数的参数。我们把参数放在了a0寄存器，并跳转到s0执行我们指定的函数。这样，一个进程的初始化就完成了。
+
+因此，`struct context context`在本实验的作用就是保存进程的上下文（主要是被调用者保存寄存器），便于在进程切换中还原之前进程的运行状态；`struct trapframe *tf`在本实验的作用就是保存第1个内核线程 initproc 的中断帧，设置其运行后去执行我们指定的函数，并在上下文切换时恢复之前进程的所有寄存器。
 
 ### 练习2：为新创建的内核线程分配资源（需要编码）
 
