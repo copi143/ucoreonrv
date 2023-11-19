@@ -51,7 +51,8 @@ _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int
     //record the page access situlation
     /*LAB3 EXERCISE 2: YOUR CODE*/ 
     //(1)link the most recent arrival page at the back of the pra_list_head qeueue.
-    list_add(head, entry);//此处别忘记改了
+    /*注意，此乃原版，认为head之前为队尾，而lab3认为head之后为队尾，采用list_add(head, entry)，相应的swap out函数亦有所不同*/
+    list_add_before(head, entry);
     return 0;
 }
 /*
