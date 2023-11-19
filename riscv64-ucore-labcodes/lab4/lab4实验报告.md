@@ -321,6 +321,57 @@ proc_run用于将指定的进程切换到CPU上运行。它的大致执行步骤
 
 - 在本实验的执行过程中，创建且运行了几个内核线程？
 
+proc_run的步骤都给全了，也没有什么说明空间了，直接看代码吧：
+```C
+// proc_run - make process "proc" running on cpu
+// NOTE: before call switch_to, should load  base addr of "proc"'s new PDT
+
+void
+proc_run(struct proc_struct *proc) {
+    if (proc != current) {
+        // LAB4:EXERCISE3 YOUR CODE
+        /*
+        * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
+        * MACROs or Functions:
+        *   local_intr_save():        Disable interrupts
+        *   local_intr_restore():     Enable Interrupts
+        *   lcr3():                   Modify the value of CR3 register
+        *   switch_to():              Context switching between two processes
+        */
+
+        bool intr_flag;
+        struct proc_struct *temp = current;
+        local_intr_save(intr_flag);
+        {
+            current = proc;
+            lcr3(proc->cr3);
+            switch_to(&(temp->context),&(proc->context));
+        }
+        local_intr_restore(intr_flag);        
+    }
+}
+```
+
+值得考虑的一个问题是，proc_run切换上下文之后，什么都没干，新的进程(线程)是如何执行的？
+但是“练习1”已经说得很清楚了，具体见练习1以"`copy_thread`"开头那段。
+
+关于有多少个内核线程的问题。
+本次实验就创建了两个线程，两个线程都是内核线程。
+其实我们到目前为止的实验，完全没有涉及用户态，即使是sret也是返回特权态(用`STATUE_SPP`状态位标识)。要细究的话，两个线程的栈空间在特权态，代码运行也是在特权态(`STATUE_SPP`)，所以两者都是内核线程。
+
+梳理一下整个实验(因为我没什么可以写的了，感觉很尴尬)。首先不能够忘记的一点就是，我们仅有一个cpu，也就是仅有一个执行流，所谓多个执行流不过是我们模拟出来的(这个实验其实也没模拟，如果加上外部时钟中断，我猜应该就能够模拟了)
+
+所以我们不必想太多复杂的事情，只需要认为一个`proc`结构体加上其执行函数就是一个内核线程(进程)。
+我认为`idleproc`是个很特殊的线程(进程)，`idleproc`作为所有进程(线程)的原点，它的特殊点在于不需要“其它进程来调用它”，也就是它只做父亲，不做儿子的特性，导致了无需初始化它的tf/context，所以也就不需要`kernel_thread/do_fork/copy_thread`一系列函数了。
+具体来说：
+1. 其context->ra不用设为forkret(而其它所有进程的上下文的ra都要设置为forkret，保证调用成功)，而且tf.gpr.s0/s1都不用设置，因为它不需要其它进程调用。
+2. 其context->sp不需要设置为tf，因为它自己的sp本身就天然指向自己tf
+
+总结一下，本次实验创建并运行了两个内核线程，`idleproc`和`initproc`，其中`idleproc`的执行程序本来就在运行中，只能说创建了其结构体吧。
+
+吐槽一句，我认为这部分代码把线程和进程搞得及其混乱，整了一个“两不像”的东西，十分阻碍理解。
+
+
 
 
 

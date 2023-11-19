@@ -188,7 +188,7 @@ proc_run(struct proc_struct *proc) {
         local_intr_save(intr_flag);
         {
             current = proc;
-            lcr3(proc->cr3);
+            lcr3(proc->cr3);//riscv里面的函数
             switch_to(&(temp->context),&(proc->context));
         }
         local_intr_restore(intr_flag);        
