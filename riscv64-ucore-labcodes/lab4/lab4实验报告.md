@@ -199,6 +199,7 @@ copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
 //关闭中断，分配 pid，将进程块链入哈希表和进程链表，最后恢复中断，一气呵成
 //这里只介绍hash_proc函数，因为开关中断在challenge，get_rid在本题思考题会说到。
 //其实这里只是多加了一个基于pid寻找在哈希表对应位置的过程
+//nr_process++进程数量加一
 /*
 // hash_proc - add proc into proc hash_list
 static void
@@ -212,6 +213,7 @@ hash_proc(struct proc_struct *proc) {
         proc->pid = get_pid();
         hash_proc(proc);
         list_add(&proc_list,&proc->list_link);
+        nr_process++;
     }
     local_intr_restore(intr_flag);
 //唤醒新进程，顾名思义就是把proc的state设为PROC_RUNNABLE态
