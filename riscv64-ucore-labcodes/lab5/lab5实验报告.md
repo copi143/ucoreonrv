@@ -470,7 +470,7 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
 
 ```C
 int
-do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
+do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
     int ret = -E_INVAL;
     //try to find a vma which include addr
     struct vma_struct *vma = find_vma(mm, addr);
@@ -523,7 +523,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
                 // 获取新分配页的内核虚拟地址
                 void * dst_kva = page2kva(new_page);
                 // 复制原页内容到新页中
-                memcpy(kva_dst, kva_src, PGSIZE);
+                memcpy(dst_kva, src_kva, PGSIZE);
             }
             // 如果该物理页面只被当前进程所引用,即page_ref等1
             else
@@ -533,7 +533,7 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
         else
         {
             if(swap_init_ok) {
-                swap_in(mm, addr, &page)
+                swap_in(mm, addr, &page);
                 page_insert(mm->pgdir, page, addr, perm);
             }
             else {
