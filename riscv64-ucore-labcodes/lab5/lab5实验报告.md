@@ -31,7 +31,6 @@ lab4的练习2的do_fork函数也需要我们修改，首先是确保current pro
 至于lab3的内容就直接填进去就好了，没有改动。
 
 ## 练习1: 加载应用程序并执行（需要编码） 
-
 **do\_execv**函数调用`load_icode`（位于kern/process/proc.c中）来加载并解析一个处于内存中的ELF执行文件格式的应用程序。你需要补充`load_icode`的第6步，建立相应的用户内存空间来放置应用程序的代码段、数据段等，且要设置好`proc_struct`结构中的成员变量trapframe中的内容，确保在执行此进程后，能够从应用程序设定的起始执行地址开始执行。需设置正确的trapframe内容。
 
 我们来一步一步分析到执行`load_icode`函数的过程（即指导书的用户进程和系统调用这几章）。首先我们知道在上一个实验中，`init_proc`只是单单在控制台中打印了`hello world`。但是这个实验则不一样，在`init_proc`中fork了一个内核线程执行`user_main`函数。
@@ -66,45 +65,44 @@ kernel_execve(const char *name, unsigned char *binary, size_t size) {
 ```
 
 实验里没有直接执行`do_execve()`函数，原因也是很简单，就是没有实现上下文的切换。本实验就采用了一种内联汇编的格式，用ebreak产生断点中断进行处理，通过设置a7寄存器的值为10说明这不是一个普通的断点中断，而是要转发到syscall()，实现了在内核态使用系统调用。
-下面我们先来看**do\_execve**函数，其基本思路就是借着当前线程的壳，用被加载的二进制程序的内存空间替换掉之前线程的内存空间
+
+下面我们先来看**do\_execve**函数，其基本思路就是借着当前线程的壳（空间），用被加载的二进制程序的内存空间替换掉之前线程的内存空间。
 
 ```C
-// do_execve - call exit_mmap(mm)&put_pgdir(mm) to reclaim memory space of current process
-//           - call load_icode to setup new memory space accroding binary prog.
 int
 do_execve(const char *name, size_t len, unsigned char *binary, size_t size) {
     struct mm_struct *mm = current->mm;
-    if (!user_mem_check(mm, (uintptr_t)name, len, 0)) {//检查name的内存空间能否被访问
+    if (!user_mem_check(mm, (uintptr_t)name, len, 0)) {//检查传入的程序名是否在用户内存空间中是合法的，否就返回错误
         return -E_INVAL;
     }
-     if (len > PROC_NAME_LEN) { //进程名字的长度有上限 PROC_NAME_LEN，在proc.h定义
-        len = PROC_NAME_LEN;
+    if (len > PROC_NAME_LEN) {
+        len = PROC_NAME_LEN;//如果程序名的长度超过了预设的最大长度（PROC_NAME_LEN），则将其截断
     }
 
     char local_name[PROC_NAME_LEN + 1];
     memset(local_name, 0, sizeof(local_name));
-    memcpy(local_name, name, len);
+    memcpy(local_name, name, len);//将程序名复制到一个本地变量local_name中
 
-    if (mm != NULL) {
+    if (mm != NULL) {// 如果当前进程具有内存管理结构体mm，则进行清理释放操作
         cputs("mm != NULL");
-        lcr3(boot_cr3);
-        if (mm_count_dec(mm) == 0) {//把进程当前占用的内存释放，之后重新分配内存
-            exit_mmap(mm);
-            put_pgdir(mm);
-            mm_destroy(mm);
+        lcr3(boot_cr3);//将CR3寄存器设置为内核页目录的物理地址
+        //将当前的页表切换回引导页表（boot_cr3），从而确保不再引用已释放的内存区域
+        if (mm_count_dec(mm) == 0) {// 如果当前进程的内存管理结构引用计数减为0，则清空相关内存管理区域和页表
+            exit_mmap(mm);//释放内存映射
+            put_pgdir(mm);//释放页目录
+            mm_destroy(mm);//销毁内存管理结构
         }
-        current->mm = NULL;
+        current->mm = NULL;// 将当前进程的内存管理结构指针设为NULL，表示没有有效的内存管理结构
     }
-    //把新的程序加载到当前进程里的工作都在load_icode()函数里完成
     int ret;
-    if ((ret = load_icode(binary, size)) != 0) {
+    if ((ret = load_icode(binary, size)) != 0) {// 加载新的可执行程序并建立新的内存映射关系
         goto execve_exit;
     }
-    set_proc_name(current, local_name);
+    set_proc_name(current, local_name);// 给新进程设置进程名
     return 0;
 
 execve_exit:
-    do_exit(ret);
+    do_exit(ret);// 执行出错，退出当前进程
     panic("already exit: %e.\n", ret);
 }
 
@@ -113,9 +111,22 @@ execve_exit:
 我们主要通过do_execve函数来完成用户进程的创建工作。此函数的主要工作流程如下：（摘自清华ucore指导手册）
 
 * 首先为加载新的执行码做好用户态内存空间清空准备。如果mm不为NULL，则设置页表为内核空间页表，且进一步判断mm的引用计数减1后是否为0，如果为0，则表明没有进程再需要此进程所占用的内存空间，为此将根据mm中的记录，释放进程所占用户空间内存和进程页表本身所占空间。最后把当前进程的mm内存管理指针为空。由于此处的initproc是内核线程，所以mm为NULL，整个处理都不会做。
+
 * 接下来的一步是加载应用程序执行码到当前进程的新创建的用户态虚拟空中。这里涉及到读ELF格式的文件，申请内存空间，建立用户态虚存空间，加载应用程序执行码等。load_icode函数完成了整个复杂的工作。
 
-load_icode函数的主要工作就是给用户进程建立一个能够让用户进程正常运行的用户环境。下面来简单说一下这个本次实验很重要的函数。
+我来小结一下do_execve函数。具体步骤如下：
+
+- 检查传入的进程名是否合法。
+- 如果当前进程存在内存管理结构体mm，则进行清理操作，包括清空内存管理部分和对应页表。
+- 加载新的可执行程序并建立新的内存映射关系。（load_icode函数）
+- 给新进程设置进程名。
+- 返回0表示成功执行新程序；如果发生错误，则退出当前进程，并传递相应的错误码。
+
+>**如果set_proc_name的实现不变, 为什么不能直接set_proc_name(current, name)?**
+>这里我提出自己的理解，但是不太确定对不对。首先我们明确一点，ucore的内核空间和用户空间是分离的，（有一个文件的注释有画图解释）。我认为这里name是用户空间的，因为它是由用户程序传递给execve系统调用的参数。而do_execve函数是在内核空间中执行的，内核代码是不能直接访问用户空间的内存，否则可能会引发段错误（Segmentation Fault）。所以这里使用了一个内核空间的本地变量local_name来传递文件名。
+
+下面就来看一下本次实验很重要的load_icode函数。
+load_icode函数的主要工作就是给用户进程建立一个能够让用户进程正常运行的用户环境。下面来从注释简单说一下。
 
 ```C
 /* load_icode - load the content of binary program(ELF format) as the new content of current process
@@ -292,6 +303,29 @@ bad_mm:
     goto out;
 }
 ```
+我简单来叙述一下这个长函数的步骤：
+
+1. 检查当前进程的内存管理结构是否为空。如果不为空，则报错。然后在基础上创建一个新的内存管理结构，用于管理当前进程的内存空间，然后为此分配一个新的页目录表。**这里的主要目的就是为了确保进程的内存管理结构和页目录正确地设置和初始化。**
+ 
+1. 根据elf的e_magic，先判断其是否是一个合法的ELF文件。然后遍历每一个程序段头，对每个类型为ELF_PT_LOAD的section进行处理：（具体细节不是很能理解，大概就是说，**根据程序的程序段头信息，为程序分配内存并将二进制数据复制到内存中的合适位置。**）
+
+    - 调用mm_map函数为每个程序段建立合法的虚拟地址空间段。这个函数会将程序段的虚拟地址映射到物理内存，并设置相应的权限。
+    - 为每个程序段分配内存，并将二进制文件中对应的数据复制到新分配的内存中。
+    - 处理BSS段。BSS段是程序中未初始化的全局变量和静态变量所占用的内存空间。如果BSS段存在且最后一个物理页没有被填满，则将剩余的空间作为BSS段，并将其清零。然后，代码会为BSS段分配更多的物理内存，并将其清零。
+
+1. 构建用户栈空间。它首先设置了一些vm_flags，然后使用mm_map函数为用户栈分配了一块合法的虚拟内存空间。接下来，通过pgdir_alloc_page函数为用户栈分配了四个页面，并将这些页面映射到用户页表中。**这样，用户程序就可以使用这些页面来存储栈上的数据。**
+
+1. 设置当前进程的内存管理器（mm）和页表寄存器（CR3），**用于进程切换时的地址空间切换。**
+
+1. 最后设置当前用户进程的trapframe结构体，
+    - 将tf->gpr.sp设置为用户栈的顶部地址，用于在用户模式下正确操作栈。
+    - 将tf->epc设置为用户程序的入口地址，用于执行用户程序。
+    - 将tf->status设置为适当的值，清除SSTATUS_SPP和SSTATUS_SPIE位，用于确保特权级别被正确设置为用户模式，并且中断被禁用，以便用户程序在预期的环境中执行。
+    
+下面来讲一下我们要填写的部分。
+- gpr.sp设置为用户栈的顶部地址。在用户模式下，栈通常从高地址向低地址增长，当新的数据被压入栈时，栈指针（SP）会向下移动（即地址减小）。这里USTACKTOP就是用户栈的顶部地址。
+- epc设置为用户程序的入口地址。elf->e_entry 是可执行文件的入口地址，也就是用户程序的起始地址。这里赋值是为了sret返回用户态的时候，处理器将会跳转到用户程序的入口开始执行。
+
 关于sstatus的设置，我们知道在sstatus寄存器中与异常和中断有关的位有SPP、SIE、SPIE，下面依次介绍一下。
 
 **SPP位**
@@ -303,14 +337,17 @@ SIE位是S-Mode下中断的总开关，就像是一个总电闸。如果SIE位�
 所以SIE位是S-Mode下的总开关，而不是任何情况下的总开关，真正完全负责禁用或者启用特定中断的位，都在sie寄存器里呢，下面再详细解释。
 
 **SPIE位**
-SPIE位记录的是在进入S-Mode之前S-Mode中断是否开启。当进入陷阱时，硬件会自动将SIE位放置到SPIE位上，相当于起到了记录原先SIE值的作用，并最后将SIE置为0，表明硬件不希望在处理一个陷阱的同时被其他中断所打扰，也就是从硬件的实现逻辑上来说不支持嵌套中断(即便如此，我们还是可以手动打开SIE位以支持嵌套中断，笑)。当使用SRET指令从S-Mode返回时，SPIE的值会重新放置到SIE位上来恢复原先的值，并且将SPIE的值置为1。
+SPIE位记录的是在进入S-Mode之前S-Mode中断是否开启。当进入陷阱时，硬件会自动将SIE位放置到SPIE位上，相当于起到了记录原先SIE值的作用，并最后将SIE置为0，表明硬件不希望在处理一个陷阱的同时被其他中断所打扰，也就是从硬件的实现逻辑上来说不支持嵌套中断(即便如此，我们还是可以手动打开SIE位以支持嵌套中断)。当使用SRET指令从S-Mode返回时，SPIE的值会重新放置到SIE位上来恢复原先的值，并且将SPIE的值置为1。
 
 下面给个省流版：
 >spp：中断前系统处于内核态（1）还是用户态（0）
->sie：内核态是否允许中断。对用户态而言，无论 sie 取何值都开启中断
+>sie：内核态是否允许中断。对用户态而言，无论 sie 取何值都开启中断。
 >spie：中断前是否开中断（用户态中断时可能 sie 为 0）
 
-这里就很显然的看出为什么要对spp和spie清零操作了。（至于没动sie，是因为省流版的第二句话）。
+这里就很显然的看出为什么要对spp和spie清零操作了（**确保在切换到用户模式时，特权级别被正确设置为用户模式，并且中断被禁用**）。（至于没动sie，是因为省流版的第二句话）。
+
+关于指导手册也是给了一个解释：（copy过来）
+>进行系统调用sys_exec之后，我们在trap返回的时候调用了sret指令，这时只要sstatus寄存器的SPP二进制位为0，就会切换到U mode，但SPP存储的是“进入trap之前来自什么特权级”，也就是说我们这里ebreak之后SPP的数值为1，sret之后会回到S mode在内核态执行用户程序。所以load_icode()函数在构造新进程的时候，会把SSTATUS_SPP设置为0，使得sret的时候能回到U mode。
 
 下面给出和上面有关的硬件处理流程
 
@@ -319,8 +356,23 @@ SPIE位记录的是在进入S-Mode之前S-Mode中断是否开启。当进入陷�
 * 在中断结束，执行 sret 指令时，会根据 spp 位的值决定 sret 执行后是处于内核态还是用户态。与此同时，spie 位的值会被写入 sie 位，而 spie 位置 1。这样，特权状态和中断状态就全部恢复了。
 
 
-请在实验报告中简要说明你的设计实现过程。
-- 请简要描述这个用户态进程被ucore选择占用CPU执行（RUNNING态）到具体执行应用程序第一条指令的整个经过。
+>请简要描述这个用户态进程被ucore选择占用CPU执行（RUNNING态）到具体执行应用程序第一条指令的整个经过。
+
+- 我们知道用户态进程首先由操作系统内核创建的。操作系统会为该进程分配所需的资源，包括内存空间和其他必要的数据结构。ucore的代码里内核线程initproc创建用户态进程。
+- 进程被创建后，它处于就绪态，等待操作系统内核调度选中它来执行。在就绪态下，进程被加入到可运行的进程队列中。
+- do_wait函数确认存在可以RUNNABLE的子进程后，调用schedule函数。
+- schedule函数通过调用proc_run来运行新线程（上次的练习3）。在proc_run里面它会切换当前进程为要运行的进程，切换页表，以便使用新进程的地址空间。然后调用switch_to()函数实现上下文切换。
+- 切换完进程上下文，然后跳转到forkret。forkret函数是直接调用forkrets函数，forkrets再把传进来的参数，也就是进程的中断帧放在了sp，然后跳到__trapret。
+- __trapret函数直接从中断帧里面恢复所有的寄存器，然后通过sret指令，跳转到userproc->tf.epc指向的函数，即kernel_thread_entry。
+- 由于`int pid = kernel_thread(user_main, NULL, 0)`这里把user_main作为参数传给了tf.gpr.s0（上一次实验说到s0寄存器里放的是新进程要执行的函数），所以kernel_thread_entry里我们跳转到user_main。
+- user_main打印userproc的pid和name信息，然后调用kernel_execve。
+- kernel_execve这里没有直接调用do_execve函数，而是想在内核态使用系统调用，具体做法是内联汇编的方式，用ebreak产生断点中断进行处理，进入exception_handler函数的断点处理，通过设置a7寄存器的值为10说明这不是一个普通的断点中断，而是要转发到syscall()。而SYS_exec作为系统调用号，告诉syscall()要执行do_execve函数。
+>trap_dispatch ->exception_handler-> syscall -> sys_exec -> do_execve ->load_icode
+- do_execve检查虚拟内存空间的合法性，释放虚拟内存空间，加载应用程序，创建新的mm结构和页目录表。其中最重要的是do_execve调用load_icode函数，load_icode加载应用程序的各个program section到新申请的内存上，为BSS section分配内存并初始化为全0，分配用户栈内存空间。设置当前用户进程的mm结构、页目录表的地址及加载页目录表地址到cr3寄存器。设置当前用户进程的tf结构。
+- 执行完load_icode函数后，就会把user_main传递进来的参数设置当前用户进程的名字后返回。这里一直返回到exception_handler函数，接着执行kernel_execve_ret(tf,current->kstack+KSTACKSIZE)函数。
+- kernel_execve_ret函数主要操作是调整栈指针并复制上一个陷阱帧的内容到新的陷阱帧中。然后跳转到_trapret函数。
+- 通过__trapret函数RESTORE_ALL，然后sret跳转到epc指向的函数（tf->epc = elf->e_entry），即用户程序的入口。
+- 执行应用程序第一条指令。
 
 
 
