@@ -332,7 +332,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     copy_thread(proc, stack, tf);
 
     bool intr_flag;
-    local_intr_save(intr_flag);//why we need prohibit the intr here?
+    local_intr_save(intr_flag);//why we need prohibit the intr here?感觉是为了保证pid的唯一性
     {
         proc->pid = get_pid();
         hash_proc(proc);

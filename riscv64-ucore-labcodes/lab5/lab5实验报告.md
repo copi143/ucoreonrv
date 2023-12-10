@@ -616,32 +616,142 @@ failed:
 请在实验报告中简要说明你对 fork/exec/wait/exit函数的分析。并回答如下问题：
  - 请分析fork/exec/wait/exit的执行流程。重点关注哪些操作是在用户态完成，哪些是在内核态完成？内核态与用户态程序是如何交错执行的？内核态执行结果是如何返回给用户程序的？
 
-##### do_fork
+### 系统调用的实现
+为什么要有系统调用？因为不希望用户肆意地访问关键资源，这可能导致严重的后果；但是又不能完全限制用户的行为，不然计算机就没有意义了。所以，操作系统提供了特定的接口，能够允许用户以规定好的方式访问系统资源。
 
-本实验中的do_fork函数与lab4中的实现类似，不同之处在于使用了`set_links`函数来设置进程间的关系，`set_links`的实现如下：
+在ucore中，系统调用的实现逻辑大致如下两张图：
 
+
+第一个关键的部分是`syscall`函数，我们需要`syscall`能够进入特权态，根据用户的需求调用正确的系统函数，执行正确的系统功能，并将结果返回给用户。
+
+为了实现上述功能，`syscall`通过一个标号num识别用户想要调用的系统函数，可变参数列表`va_list`来获取用户的参数，然后通过`ecall`指令进入特权态，并执行对应的系统函数。
 ```C
-static void
-set_links(struct proc_struct *proc) {
-    list_add(&proc_list, &(proc->list_link));
-    proc->yptr = NULL;
-    if ((proc->optr = proc->parent->cptr) != NULL) {
-        proc->optr->yptr = proc;
-    }
-    proc->parent->cptr = proc;
-    nr_process ++;
+static inline int
+syscall(int64_t num, ...) {
+    va_list ap;
+    va_start(ap, num);
+    uint64_t a[MAX_ARGS];
+    int i, ret;
+    for (i = 0; i < MAX_ARGS; i ++) {
+        a[i] = va_arg(ap, uint64_t);
+    }
+    va_end(ap);
+  
+    asm volatile (
+        "ld a0, %1\n"
+        "ld a1, %2\n"
+        "ld a2, %3\n"
+        "ld a3, %4\n"
+        "ld a4, %5\n"
+        "ld a5, %6\n"
+        "ecall\n"
+        "sd a0, %0"
+        : "=m" (ret)
+        : "m"(num), "m"(a[0]), "m"(a[1]), "m"(a[2]), "m"(a[3]), "m"(a[4])
+        :"memory");
+    return ret;
 }
 ```
 
+触发`ecall`指令之后，将`sepc`存储为下一条指令的地址，然后就是内核态的工作了(lab1的内容)。首先cpu会进入特权态，然后跳转到`stvec`寄存器中存储的地址，我们在`idt_init`中将其设置为`__alltrap`，所以接下来会去执行异常处理，虽然我们在lab1中已经实现过这套逻辑，但是在lab5中有一些新的改变，所以还得具体看看。
+
+首先在`__alltrap`中将所有寄存器存储到栈中，需要注意的是，我们的现在的sp还是用户那里来的sp，我们需要转到内核态的sp(内核栈)之中。我们需要区分用户态和内核态的异常，使得它们都能够在内核栈中存储上下文环境。
+
+具体的方式在实验手册(lab5-中断处理)已经说得很明白了，简单来说就是看`sscratch`是不是0，如果是0，意味着这是内核态的中断(因为在`idt_init`里面我们将其设置为0)；如果不是0，意味着是从用户态来的，在RESTOREAll有修改，需要加载内核栈进入sscratch
+
+
+接下来跳转到`trap`函数，在`trap`里面，(待回答：为什么需要将current->tf保存，赋值为trap的参数tf，然后再恢复？)将调用`trap_dispatch`，在`trap_dispatch`中根据不同的cause调用两个处理句柄处理异常，这里是系统调用，调用的是`exception_handler`，在其中进一步用swich语句锁定`CAUSE_USER_ECALL`，进而调用内核态的`syscall`函数。
+
+
+内核态的`syscall`函数如下：
+```C
+void
+
+syscall(void) {
+    struct trapframe *tf = current->tf;
+    uint64_t arg[5];
+    int num = tf->gpr.a0;
+    if (num >= 0 && num < NUM_SYSCALLS) {
+        if (syscalls[num] != NULL) {
+            arg[0] = tf->gpr.a1;
+            arg[1] = tf->gpr.a2;
+            arg[2] = tf->gpr.a3;
+            arg[3] = tf->gpr.a4;
+            arg[4] = tf->gpr.a5;
+            tf->gpr.a0 = syscalls[num](arg);
+            return ;
+        }
+    }
+    print_trapframe(tf);
+    panic("undefined syscall %d, pid = %d, name = %s.\n",
+            num, current->pid, current->name);
+}
+```
+
+它是用户态的`syscall`的一个对应，传过来的都是用户态的函数编号和参数列表，然后在一个`syscalls`的函数数组中查找相应的函数，然后系统函数执行相应的任务，这样，一个完整的系统调用就完成了。
+
+```C
+static int (*syscalls[])(uint64_t arg[]) = {
+    [SYS_exit]              sys_exit,
+    [SYS_fork]              sys_fork,
+    [SYS_wait]              sys_wait,
+    [SYS_exec]              sys_exec,
+    [SYS_yield]             sys_yield,
+    [SYS_kill]              sys_kill,
+    [SYS_getpid]            sys_getpid,
+    [SYS_putc]              sys_putc,
+    [SYS_pgdir]             sys_pgdir,
+};
+```
+
+待完善``========================================================
+系统调用结束后，将返回值存在tf的a0中，这时候如果回到用户态，就能够从a0读取返回值，返回给用户了。
+
+问题在于如何回到用户态呢？这时候需要一次`schedule()`，重新执行用户进程的上下文。
+
+在返回到`trap`函数继续返回的时候，我们跳转到`trap`的时候使用的是`jal`指令，该指令将`ra`存储为`__trapret`的地址，然后返回的时候就跳到`__trapret`，在其中恢复所有寄存器，并且`sret`。记得吗？我们在`ecall`指令的时候将`sepc`设置为······有空再写
+``==============================================================
+
+
+### 进程执行 fork/exec/wait/exit 的实现
+##### fork
+在用户态调用fork，经过一系列流程，会进入内核态执行`sys_fork`函数，具体可以参考上面的`系统调用实现`。`sys_fork`任务也非常简单，就是将tf和sp准备好，调用`do_fork`函数。`do_fork`函数在lab4的时候实现过，这里主要讲一下不一样的地方：
+
+第一个不同之处在于使用了`set_links`函数来设置进程间的关系，`set_links`的实现如下：
+```C
+
+static void
+set_links(struct proc_struct *proc) {
+    list_add(&proc_list, &(proc->list_link));
+    proc->yptr = NULL;
+    if ((proc->optr = proc->parent->cptr) != NULL) {
+        proc->optr->yptr = proc;
+    }
+    proc->parent->cptr = proc;
+    nr_process ++;
+}
+```
+
+
 除了lab4已有的内容，该函数还设置了proc_struct中的optr、yptr以及cptr成员。
-
+  
 其中，cptr指针指向当前进程的子进程中最晚创建的那个子进程，yptr指向与当前进程共享同一个父进程，但比当前进程的创建时间更晚的进程，即younger sibling，optr指针与yptr相反，指向older sibling。
-
-进程间关系如下图所示
+  
+进程间关系如下图所示  
 
 ![进程间关系图](进程间关系图.png)
 
-##### do_wait
+
+另一个不同是启用了`copy_mm`的，如果启用`CLONE_VM`，则是`share`模式，相当于浅拷贝，直接将当前的mm指针赋值给新创建的mm指针；但是sys_fork这里传入的参数都是0，也就是`duplicate`模式，相当于深拷贝(也可能是`COW`)。
+
+duplicate时，(`set_pgdir`为什么要复制boot_dir呀!!!)、(lock究竟时什么呀)、(dup_map的工作是什么？)
+
+后续的操作和lab4一样的，就是`copy_thread`将当前的proc复制一份，然后同样返回一样的地方，因为此时将a0设置为了0，所以返回的如果是子进程，那么得到的返回值就是0。
+
+如何返回子进程的呢？首先`trap`的地方提供了一个可能调度的点，然后······
+##### exec
+用户陷入还是不多说，具体可以看上面的的`系统调用的实现`；内核的内容也不必多说，可以直接看练习1；
+##### wait
 令当前进程等待某个特定的或任意一个子进程，并在得到子进程的退出消息后，彻底回收子进程所占用的资源，包括子进程的内核栈和进程控制块。只有在`do_wait`函数执行完成之后，子进程的所有资源才被完全释放。该函数的实现逻辑为：
 
 - 检查当前进程所分配的内存区域是否存在异常。
@@ -731,6 +841,82 @@ found:
     return 0;
 }
 ```
+
+##### exit
+`do_exit`的逻辑如下，具体看注释吧。
+```C
+// do_exit - called by sys_exit
+//   1. call exit_mmap & put_pgdir & mm_destroy to free the almost all memory space of process
+//   2. set process' state as PROC_ZOMBIE, then call wakeup_proc(parent) to ask parent reclaim itself.
+//   3. call scheduler to switch to other process
+int
+do_exit(int error_code) {
+//如果基础的两个进程退出了，就崩溃了
+    if (current == idleproc) {
+        panic("idleproc exit.\n");
+    }
+    if (current == initproc) {
+        panic("initproc exit.\n");
+    }
+    //销毁mm以及其管理的所有内存，将pdt设置为boot_cr3
+    struct mm_struct *mm = current->mm;
+    if (mm != NULL) {
+        lcr3(boot_cr3);
+        if (mm_count_dec(mm) == 0) {
+            exit_mmap(mm);
+            put_pgdir(mm);
+            mm_destroy(mm);
+        }
+        current->mm = NULL;
+    }
+    //进入僵尸态，等待回收；获得返回码。
+    current->state = PROC_ZOMBIE;
+    current->exit_code = error_code;
+    bool intr_flag;
+    struct proc_struct *proc;
+    //找到老爹，把老爹唤醒，并且整理进程关系链表
+    //找不到老爹就把initproc唤醒
+    local_intr_save(intr_flag);
+    {
+        proc = current->parent;
+        if (proc->wait_state == WT_CHILD) {
+            wakeup_proc(proc);
+        }
+        while (current->cptr != NULL) {
+            proc = current->cptr;
+            current->cptr = proc->optr;
+            proc->yptr = NULL;
+            if ((proc->optr = initproc->cptr) != NULL) {
+                initproc->cptr->yptr = proc;
+            }
+            proc->parent = initproc;
+            initproc->cptr = proc;
+            if (proc->state == PROC_ZOMBIE) {
+                if (initproc->wait_state == WT_CHILD) {
+                    wakeup_proc(initproc);
+                }
+            }
+        }
+    }
+    local_intr_restore(intr_flag);
+    schedule();
+    panic("do_exit will not return!! %d.\n", current->pid);
+
+}
+```
+
+
+
+状态图：
+stateDiagram
+    [*] --> PROC_UNINIT: alloc_proc
+    PROC_UNINIT --> PROC_RUNNABLE: proc_init / wakeup_proc
+    PROC_RUNNABLE --> RUNNING: proc_run
+    RUNNING --> PROC_SLEEPING: try_free_pages / do_wait / do_sleep
+    PROC_SLEEPING --> PROC_ZOMBIE: do_exit
+    PROC_ZOMBIE --> [*]
+    RUNNING --> PROC_ZOMBIE: do_exit
+    PROC_SLEEPING --> PROC_RUNNABLE: wakeup_proc
 
  - 请给出ucore中一个用户态进程的执行状态生命周期图（包执行状态，执行状态之间的变换关系，以及产生变换的事件或函数调用）。（字符方式画即可）
 
