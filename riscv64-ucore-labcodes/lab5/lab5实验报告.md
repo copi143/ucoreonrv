@@ -619,8 +619,10 @@ failed:
 ### 系统调用的实现
 为什么要有系统调用？因为不希望用户肆意地访问关键资源，这可能导致严重的后果；但是又不能完全限制用户的行为，不然计算机就没有意义了。所以，操作系统提供了特定的接口，能够允许用户以规定好的方式访问系统资源。
 
-在ucore中，系统调用的实现逻辑大致如下两张图：
+在ucore中，系统调用的实现逻辑大致如我画的两个图：
+![系统调用实现逻辑(用户态)](系统调用实现逻辑(用户态).png)
 
+![系统调用实现逻辑(内核态)](系统调用实现逻辑(内核态).png)
 
 第一个关键的部分是`syscall`函数，我们需要`syscall`能够进入特权态，根据用户的需求调用正确的系统函数，执行正确的系统功能，并将结果返回给用户。
 
@@ -704,13 +706,13 @@ static int (*syscalls[])(uint64_t arg[]) = {
 };
 ```
 
-待完善``========================================================
 系统调用结束后，将返回值存在tf的a0中，这时候如果回到用户态，就能够从a0读取返回值，返回给用户了。
 
 问题在于如何回到用户态呢？这时候需要一次`schedule()`，重新执行用户进程的上下文。
 
-在返回到`trap`函数继续返回的时候，我们跳转到`trap`的时候使用的是`jal`指令，该指令将`ra`存储为`__trapret`的地址，然后返回的时候就跳到`__trapret`，在其中恢复所有寄存器，并且`sret`。记得吗？我们在`ecall`指令的时候将`sepc`设置为······有空再写
-``==============================================================
+在返回到`trap`函数继续返回的时候，我们跳转到`trap`的时候使用的是`jal`指令，该指令将`ra`存储为`__trapret`的地址，然后返回的时候就跳到`__trapret`，在其中恢复所有寄存器(这里需要恢复用户栈，之前STORE的时候，我们将用户栈的sp通过sscratch存到了sp + 2B的区域(就是tf的sp区域))，并且`sret`。记得吗？我们在`ecall`指令的时候将`sepc`设置为ecall指令的下一条指令的地址(系统调用返回指令的地址)，所以`sret`的时候就能够返回到用户态相应的地址。
+
+有一个例外的函数调用就是exit()，它调用系统的do_exit()之后就直接被清除(还需要等待父进程释放资源)并且变成僵尸了，所以已经不可能执行了，也就没有返回用户态的事情了。
 
 
 ### 进程执行 fork/exec/wait/exit 的实现
@@ -744,7 +746,7 @@ set_links(struct proc_struct *proc) {
 
 另一个不同是启用了`copy_mm`的，如果启用`CLONE_VM`，则是`share`模式，相当于浅拷贝，直接将当前的mm指针赋值给新创建的mm指针；但是sys_fork这里传入的参数都是0，也就是`duplicate`模式，相当于深拷贝(也可能是`COW`)。
 
-duplicate时，(`set_pgdir`为什么要复制boot_dir呀!!!)、(lock究竟时什么呀)、(dup_map的工作是什么？)
+duplicate时，简单的内容可以参考上面的练习2，具体有一些细节，例如用了`lock`互斥锁，防止mm访问冲突。
 
 后续的操作和lab4一样的，就是`copy_thread`将当前的proc复制一份，然后同样返回一样的地方，因为此时将a0设置为了0，所以返回的如果是子进程，那么得到的返回值就是0。
 
@@ -875,7 +877,6 @@ do_exit(int error_code) {
     bool intr_flag;
     struct proc_struct *proc;
     //找到老爹，把老爹唤醒，并且整理进程关系链表
-    //找不到老爹就把initproc唤醒
     local_intr_save(intr_flag);
     {
         proc = current->parent;
@@ -885,7 +886,7 @@ do_exit(int error_code) {
         while (current->cptr != NULL) {
             proc = current->cptr;
             current->cptr = proc->optr;
-            proc->yptr = NULL;
+            proc->yptr = NULL;//把孩子全都交给initproc管理
             if ((proc->optr = initproc->cptr) != NULL) {
                 initproc->cptr->yptr = proc;
             }
@@ -905,9 +906,9 @@ do_exit(int error_code) {
 }
 ```
 
+ - 请给出ucore中一个用户态进程的执行状态生命周期图（包执行状态，执行状态之间的变换关系，以及产生变换的事件或函数调用）。（字符方式画即可）
 
-
-状态图：
+##### 状态图
 stateDiagram
     [*] --> PROC_UNINIT: alloc_proc
     PROC_UNINIT --> PROC_RUNNABLE: proc_init / wakeup_proc
@@ -918,8 +919,21 @@ stateDiagram
     RUNNING --> PROC_ZOMBIE: do_exit
     PROC_SLEEPING --> PROC_RUNNABLE: wakeup_proc
 
- - 请给出ucore中一个用户态进程的执行状态生命周期图（包执行状态，执行状态之间的变换关系，以及产生变换的事件或函数调用）。（字符方式画即可）
-
+这个程序框架中也给了状态图：
+```C
+process state changing:
+                                            
+  alloc_proc                                 RUNNING
+      +                                   +--<----<--+
+      +                                   + proc_run +
+      V                                   +-->---->--+ 
+PROC_UNINIT -- proc_init/wakeup_proc --> PROC_RUNNABLE -- try_free_pages/do_wait/do_sleep --> PROC_SLEEPING --
+                                           A      +                                                           +
+                                           |      +--- do_exit --> PROC_ZOMBIE                                +
+                                           +                                                                  + 
+                                           -----------------------wakeup_proc----------------------------------
+-----------------------------
+```
 
 执行：make grade。如果所显示的应用程序检测都输出ok，则基本正确。（使用的是qemu-1.0.1）
 
