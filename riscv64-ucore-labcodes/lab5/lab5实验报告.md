@@ -330,7 +330,9 @@ SPIE位记录的是在进入S-Mode之前S-Mode中断是否开启。当进入陷�
 
 请在实验报告中简要说明你的设计实现过程。
 
-实验代码已经提示了每一步的实现过程，下面再以注释的形式说明所补充的每句代码的作用：
+`do_fork`中调用`copy_mm`来根据`clone_flags`标志位决定是让子进程共享当前进程（父进程）的用户内存地址空间，还是复制父进程的用户内存地址空间中的合法内容到子进程中，后者是通过调用`dup_mmap`函数实现的，在`dup_mmap`中，通过遍历父进程管理的所有连续虚拟内存区域（vma），调用`copy_range`函数复制每个vma对应的内存空间中的内容到子进程中。因此，`copy_range`的调用流图为：do_fork-->copy_mm-->dup_mmap-->copy_range
+
+实验代码已经提示了`copy_range`函数每一步的实现过程，下面再以注释的形式说明所补充的每句代码的作用：
 
 ```C
 int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
@@ -581,6 +583,96 @@ set_links(struct proc_struct *proc) {
 
 ![进程间关系图](进程间关系图.png)
 
+##### do_wait
+令当前进程等待某个特定的或任意一个子进程，并在得到子进程的退出消息后，彻底回收子进程所占用的资源，包括子进程的内核栈和进程控制块。只有在`do_wait`函数执行完成之后，子进程的所有资源才被完全释放。该函数的实现逻辑为：
+
+- 检查当前进程所分配的内存区域是否存在异常。
+- 查找特定/所有子进程中是否存在某个等待父进程回收的僵尸态（PROC_ZOMBIE）子进程。
+  - 如果有，则回收该进程并函数返回。
+  - 如果没有，则设置当前进程状态为休眠态（PROC_SLEEPING）并执行`schedule`函数调度其他进程运行。当该进程的某个子进程结束运行后，当前进程会被唤醒，并在`do_wait`函数中回收子进程的PCB内存资源。
+
+其具体实现如下：
+```C
+int
+do_wait(int pid, int *code_store) {
+    struct mm_struct *mm = current->mm;
+    if (code_store != NULL) {
+        // 检查当前进程所分配的内存区域是否存在异常。
+        if (!user_mem_check(mm, (uintptr_t)code_store, sizeof(int), 1)) {
+            return -E_INVAL;
+        }
+    }
+
+    struct proc_struct *proc;
+    bool intr_flag, haskid;
+repeat:
+    haskid = 0;
+    // 参数指定了pid(pid不为0)，代表回收pid对应的僵尸态进程
+    if (pid != 0) {
+        proc = find_proc(pid);
+        // 对应的进程不为空且须为当前进程的子进程
+        if (proc != NULL && proc->parent == current) {
+            haskid = 1;
+            // pid对应的进程确实是僵尸态，跳转found进行回收
+            if (proc->state == PROC_ZOMBIE) {
+                goto found;
+            }
+        }
+    }
+    else {
+        // 参数未指定pid(pid为0)，代表回收当前进程的任意一个僵尸态子进程
+        proc = current->cptr;
+        for (; proc != NULL; proc = proc->optr) {
+            haskid = 1;
+            if (proc->state == PROC_ZOMBIE) {
+                // 找到了一个僵尸态子进程，跳转found进行回收
+                goto found;
+            }
+        }
+    }
+    if (haskid) {
+        /* 
+        * 当前进程需要回收僵尸态子进程，但是没有找到可以回收的僵尸态子进程。
+        * 如果找到可以回收的子进程，函数会跳到found段执行，不会执行到这里。
+        */
+        // 令当前进程进入休眠态，让出CPU
+        current->state = PROC_SLEEPING;
+        // 令其等待状态为等待子进程退出
+        current->wait_state = WT_CHILD;
+        // 调度其他进程运行。
+        schedule();
+        if (current->flags & PF_EXITING) {
+            // 如果当前进程发现自己被关闭了，则将自己退出
+            do_exit(-E_KILLED);
+        }
+        goto repeat;
+    }
+    return -E_BAD_PROC;
+
+found:
+    if (proc == idleproc || proc == initproc) {
+        // idleproc和initproc是不应该被回收的
+        panic("wait idleproc or initproc.\n");
+    }
+    if (code_store != NULL) {
+        // 将子进程退出的原因保存在*code_store中
+        *code_store = proc->exit_code;
+    }
+    local_intr_save(intr_flag);
+    {
+        // 从进程控制块hash表中移除被回收的子进程
+        unhash_proc(proc);
+        // 从进程控制块链表中移除被回收的子进程，并清除其进程关系
+        remove_links(proc);
+    }
+    local_intr_restore(intr_flag);
+    // 释放被回收的子进程的内核栈
+    put_kstack(proc);
+    // 释放被回收的子进程的进程控制块结构
+    kfree(proc);
+    return 0;
+}
+```
 
  - 请给出ucore中一个用户态进程的执行状态生命周期图（包执行状态，执行状态之间的变换关系，以及产生变换的事件或函数调用）。（字符方式画即可）
 
