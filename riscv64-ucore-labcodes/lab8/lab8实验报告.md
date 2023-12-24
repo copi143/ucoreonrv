@@ -498,6 +498,7 @@ out:
 * 根据上一步返回的inode，设置file对象的属性。如果打开方式是append，则还会设置file的pos成员为当前文件的大小。
 * 最后返回file->fd
 
+它要给这个即将打开的文件分配一个file数据结构的变量，这个变量其实是当前进程的打开文件数组current->fs_struct->filemap[]中的一个空闲元素（即还没用于一个打开的文件），而这个元素的索引值就是最终要返回到用户进程并赋值给变量fd1。
 ```C
 // open file
 int
@@ -539,7 +540,7 @@ file_open(char *path, uint32_t open_flags) {
     return file->fd;
 }
 ```
-这里我们需要调用vfs_open函数来找到path指出的文件所对应的基于inode数据结构的VFS索引节点node。
+到了这一步还仅仅是给当前用户进程分配了一个file数据结构的变量，还没有找到对应的文件索引节点。为此需要进一步调用vfs_open函数来找到path指出的文件所对应的基于inode数据结构的VFS索引节点node。
 
 vfs_open函数主要完成以下操作：
 
@@ -550,6 +551,19 @@ vfs_open函数主要完成以下操作：
 * 执行到此步时，当前函数中的局部变量node一定非空，此时进一步调用vop_open函数打开文件。
 
 * 如果文件打开正常，则根据当前函数传入的open_flags参数来判断是否需要将当前文件截断（truncate）至0（即清空）。如果需要截断，则执行vop_truncate函数。最后函数返回。
+
+
+简单来说，就是干了两件事，一是通过vfs_lookup找到path对应文件的inode；二是调用vop_open函数打开文件。
+
+下面注意几个细节：
+
+1. 找到文件设备的根目录“/”的索引节点需要注意，这里的vfs_lookup函数是一个针对目录的操作函数，它会调用vop_lookup函数来找到SFS文件系统中的“/test”目录下的“testfile”文件。为此，vfs_lookup函数首先调用get_device函数，并进一步调用vfs_get_bootfs函数（其实调用了）来找到根目录“/”对应的inode。这个inode就是位于vfs.c中的inode变量bootfs_node。这个变量在init_main函数（位于kern/process/proc.c）执行时获得了赋值。
+
+1. 找到根目录“/”下的“test”子目录对应的索引节点，在找到根目录对应的inode后，通过调用vop_lookup函数来查找“/”和“test”这两层目录下的文件“testfile”所对应的索引节点，如果找到就返回此索引节点。
+
+1. 把file和node建立联系。完成第3步后，将返回到file_open函数中，通过执行语句“file->node=node;”，就把当前进程的current->fs_struct->filemap[fd]（即file所指变量）的成员变量node指针指向了代表“/test/testfile”文件的索引节点node。这时返回fd。经过重重回退，通过系统调用返回，用户态的syscall->sys_open->open->safe_open等用户函数的层层函数返回，最终把把fd赋值给fd1。自此完成了打开文件操作。但这里我们还没有分析第2和第3步是如何进一步调用SFS文件系统提供的函数找位于SFS文件系统上的“/test/testfile”所对应的sfs磁盘inode的过程。下面需要进一步对此进行分析。
+
+
 
 > SFS文件系统层
 
@@ -583,6 +597,8 @@ sfs_lookup(struct inode *node, char *path, struct inode **node_store) {
 ```
 下面摘自实验手册：
 sfs_lookup函数以“/”为分割符，从左至右逐一分解path获得各个子目录和最终文件对应的inode节点。在本例中是调用sfs_lookup_once查找以根目录下的文件sfs_filetest1所对应的inode节点。当无法分解path后，就意味着找到了sfs_filetest1对应的inode节点，就可顺利返回了。
+
+sfs_lookup_once里面将调用sfs_dirent_search_nolock函数来查找与路径名匹配的目录项，如果找到目录项，则根据目录项中记录的inode所处的数据块索引值找到路径名对应的SFS磁盘inode，并读入SFS磁盘inode对的内容，创建SFS内存inode。
 
 ## 练习2: 完成基于文件系统的执行程序机制的实现（需要编码）
 改写proc.c中的load_icode函数和其他相关函数，实现基于文件系统的执行程序机制。执行：make qemu。如果能看看到sh用户程序的执行界面，则基本成功了。如果在sh用户界面上可以执行”ls”,”hello”等其他放置在sfs文件系统中的其他执行程序，则可以认为本实验基本成功。
