@@ -64,10 +64,10 @@ vfs_set_bootfs(char *fsname) {
             return -E_INVAL;
         }
         int ret;
-        if ((ret = vfs_chdir(fsname)) != 0) {
+        if ((ret = vfs_chdir(fsname)) != 0) { //将当前目录设置为fsname
             return ret;
         }
-        if ((ret = vfs_get_curdir(&node)) != 0) {
+        if ((ret = vfs_get_curdir(&node)) != 0) { //获取当前目录的inode
             return ret;
         }
     }

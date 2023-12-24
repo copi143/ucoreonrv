@@ -23,7 +23,7 @@ struct file;
  * process's file related informaction
  */
 struct files_struct {
-    struct inode *pwd;      // inode of present working directory
+    struct inode *pwd;      // inode of present working directory 当前工作目录
     struct file *fd_array;  // opened files array
     int files_count;        // the number of opened files
     semaphore_t files_sem;  // lock protect sem

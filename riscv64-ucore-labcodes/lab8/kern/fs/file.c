@@ -36,16 +36,16 @@ fd_array_init(struct file *fd_array) {
 static int
 fd_array_alloc(int fd, struct file **file_store) {
 //    panic("debug");
-    struct file *file = get_fd_array();
-    if (fd == NO_FD) {
-        for (fd = 0; fd < FILES_STRUCT_NENTRY; fd ++, file ++) {
+    struct file *file = get_fd_array(); // 拿到当前的进程的file列表，问题就是这个列表意味着什么？注释里说的是“opened file”
+    if (fd == NO_FD) { //无效的fd，从0开始找，找到第一个FD_NONE状态的file
+        for (fd = 0; fd < FILES_STRUCT_NENTRY; fd ++, file ++) { 
             if (file->status == FD_NONE) {
                 goto found;
             }
         }
         return -E_MAX_OPEN;
     }
-    else {
+    else {// 有效的fd，直接锁定
         if (testfd(fd)) {
             file += fd;
             if (file->status == FD_NONE) {
@@ -57,7 +57,7 @@ fd_array_alloc(int fd, struct file **file_store) {
     }
 found:
     assert(fopen_count(file) == 0);
-    file->status = FD_INIT, file->node = NULL;
+    file->status = FD_INIT, file->node = NULL;// 将文件状态标识为init
     *file_store = file;
     return 0;
 }
@@ -93,7 +93,7 @@ fd_array_release(struct file *file) {
 void
 fd_array_open(struct file *file) {
     assert(file->status == FD_INIT && file->node != NULL);
-    file->status = FD_OPENED;
+    file->status = FD_OPENED; //将fd置为opened
     fopen_count_inc(file);
 }
 
@@ -156,7 +156,7 @@ file_testfd(int fd, bool readable, bool writable) {
 int
 file_open(char *path, uint32_t open_flags) {
     bool readable = 0, writable = 0;
-    switch (open_flags & O_ACCMODE) {
+    switch (open_flags & O_ACCMODE) { //解析 open_flags
     case O_RDONLY: readable = 1; break;
     case O_WRONLY: writable = 1; break;
     case O_RDWR:
@@ -167,7 +167,7 @@ file_open(char *path, uint32_t open_flags) {
     }
     int ret;
     struct file *file;
-    if ((ret = fd_array_alloc(NO_FD, &file)) != 0) {
+    if ((ret = fd_array_alloc(NO_FD, &file)) != 0) { // 从头到尾找到第一个未初始化的fd，并将其初始化init
         return ret;
     }
     struct inode *node;

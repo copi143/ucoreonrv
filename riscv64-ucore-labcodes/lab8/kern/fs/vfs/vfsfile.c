@@ -11,7 +11,7 @@
 int
 vfs_open(char *path, uint32_t open_flags, struct inode **node_store) {
     bool can_write = 0;
-    switch (open_flags & O_ACCMODE) {
+    switch (open_flags & O_ACCMODE) {// 解析open_flags并做合法性检查
     case O_RDONLY:
         break;
     case O_WRONLY:
@@ -32,16 +32,16 @@ vfs_open(char *path, uint32_t open_flags, struct inode **node_store) {
     struct inode *node;
     bool excl = (open_flags & O_EXCL) != 0;
     bool create = (open_flags & O_CREAT) != 0;
-    ret = vfs_lookup(path, &node);
+    ret = vfs_lookup(path, &node); // 根据路径构造出inode，返回值非0，表示不存在对应路径的文件
 
-    if (ret != 0) {
+    if (ret != 0) { // 要打开的文件不存在，可能出错，也可能要创建新文件
         if (ret == -16 && (create)) {
             char *name;
             struct inode *dir;
             if ((ret = vfs_lookup_parent(path, &dir, &name)) != 0) {
-                return ret;
+                return ret;//需要在已经存在的目录下创建文件，目录不存在，则出错
             }
-            ret = vop_create(dir, name, excl, &node);
+            ret = vop_create(dir, name, excl, &node);// 创建新文件
         } else return ret;
     } else if (excl && create) {
         return -E_EXISTS;

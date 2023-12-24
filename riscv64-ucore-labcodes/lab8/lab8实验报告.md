@@ -888,5 +888,37 @@ file_seek(int fd, off_t pos, int whence) {
 ## 扩展练习 Challenge1：完成基于“UNIX的PIPE机制”的设计方案
 如果要在ucore里加入UNIX的管道（Pipe）机制，至少需要定义哪些数据结构和接口？（接口给出语义即可，不必具体实现。数据结构的设计应当给出一个（或多个）具体的C语言struct定义。在网络上查找相关的Linux资料和实现，请在实验报告中给出设计实现”UNIX的PIPE机制“的概要设方案，你的设计应当体现出对可能出现的同步互斥问题的处理。）
 
+简而言之，可以将pipe当作一个文件，两个进程之间进行读写从而实现交流。可以用两个文件描述符(fd)表示这个文件的读/写两端，如下图：
+![管道示意图](pipe1.png)
+
+具体来说，可以将pipe抽象成一个`inode`，但是这个特殊的`inode`不指向具体的文件系统管理的磁盘或其它设备空间，而是指向内核的一片缓冲区。模仿本次实验中，`inode`->`sfs_inode`->`sfs_disk_inode`从而在`sfs_disk_inode`处找到指向的数据扇区，我们设计结构体`pipe_inode_info`，存储pipe相关信息和缓冲区地址，让`inode`指向它，具体如下：
+
+```C
+struct pipe_inode_info {
+    //......需要一些其它信息，但是一个简单的一次性无名pipe而言，不需要太多东西
+	struct pipe_buffer *bufs;      //缓冲区
+};
+
+struct pipe_buffer {
+	struct page *page;               //内核空间
+	unsigned int offset, len;        //长度与偏移
+	const struct pipe_buf_operations *ops;
+	unsigned int flags;
+	unsigned long private;
+};
+```
+
+总的逻辑大概如下图：
+![pipe逻辑图](pipe2.png)
+需要接口如下：
+1. `pipe(int fd[2])`：用于创建pipe
+2. `pipe_write(int fd1)`：写入pipe
+3. `pipe_read(int fd2)`：读取pipe的内容
+
+另外就是同步互斥机制，需要保证写的过程中不能读；而且如果写满了，不能再继续写，直到有进程将pipe里面的东西读走；并且如果pipe里面的东西是空的，不能继续读，直到有进程写入东西。
+
 ## 扩展练习 Challenge2：完成基于“UNIX的软连接和硬连接机制”的设计方案
 如果要在ucore里加入UNIX的软连接和硬连接机制，至少需要定义哪些数据结构和接口？（接口给出语义即可，不必具体实现。数据结构的设计应当给出一个（或多个）具体的C语言struct定义。在网络上查找相关的Linux资料和实现，请在实验报告中给出设计实现”UNIX的软连接和硬连接机制“的概要设方案，你的设计应当体现出对可能出现的同步互斥问题的处理。）
+
+
+

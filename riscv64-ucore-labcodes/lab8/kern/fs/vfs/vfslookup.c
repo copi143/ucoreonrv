@@ -24,7 +24,7 @@ get_device(char *path, char **subpath, struct inode **node_store) {
          * the current directory, and use the whole thing as the subpath.
          * */
         *subpath = path;
-        return vfs_get_curdir(node_store);
+        return vfs_get_curdir(node_store); //意思就是返回当前工作目录
     }
     if (colon > 0) {
         /* device:path - get root of device's filesystem */

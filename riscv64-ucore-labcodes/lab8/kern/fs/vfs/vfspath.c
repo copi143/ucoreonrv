@@ -45,7 +45,7 @@ int
 vfs_get_curdir(struct inode **dir_store) {
     struct inode *node;
     if ((node = get_cwd_nolock()) != NULL) {
-        vop_ref_inc(node);
+        vop_ref_inc(node); // 返回一个当前进程下的pwd的node，并将引用计数自增1
         *dir_store = node;
         return 0;
     }
