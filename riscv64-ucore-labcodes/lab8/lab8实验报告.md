@@ -171,9 +171,37 @@ void phi_put_forks_condvar(int i) {
 首先我们要知道ucore 的文件系统架构主要由四部分组成：
 
 * 通用文件系统访问接口层：该层提供了一个从用户空间到文件系统的标准访问接口。这一层访问接口让应用程序能够通过一个简单的接口获得 ucore 内核的文件系统服务。
+
+```C
+    [SYS_open]              sys_open,
+    [SYS_close]             sys_close,
+    [SYS_read]              sys_read,
+    [SYS_write]             sys_write,
+    [SYS_getdirentry]       sys_getdirentry,
+    [SYS_seek]              sys_seek,
+    [SYS_fstat]             sys_fstat,
+    [SYS_fsync]             sys_fsync,
+    [SYS_getcwd]            sys_getcwd,
+    [SYS_dup]               sys_dup,
+
+```
 * 文件系统抽象层：向上提供一个一致的接口给内核其他部分（文件系统相关的系统调用实现模块和其他内核功能模块）访问。向下提供一个同样的抽象函数指针列表和数据结构屏蔽不同文件系统的实现细节。
-* Simple FS 文件系统层：一个基于索引方式的简单文件系统实例。向上通过各种具体函数实现以对应文件系统抽象层提出的抽象函数。向下访问外设接口
+
+struct file: 进程访问的单个文件信息
+struct file_struct: 某个进程访问的当前工作目录和打开的文件集合
+struct inode: 内存里的索引节点,封装了不同文件系统的索引节点
+struct inode_ops: 封装了不同索引节点的操作函数列表(开关读写),vop为virtual operation简写
+
+* Simple FS 文件系统层：一个基于索引方式的简单文件系统实例。向上通过各种具体函数实现以对应文件系统抽象层提出的抽象函数。向下访问外设接口。
+
+inode,即index node.注意这里说的是SFS的索引节点,不是VFS抽象出的索引节点
+struct sfs_disk_inode,代表了一个实际位于磁盘上的文件
+struct sfs_inode,内存inode只有在打开一个文件后才会创建，如果关机则相关信息都会消失。可以看到，内存inode包含了硬盘inode的信息，而且还增加了其他一些信息，这是为了实现判断是否改写（dirty），互斥操作（sem），回收（reclaim——count）和快速定位（hash_link）等作用。
+
 * 外设接口层：向上提供 device 访问接口屏蔽不同硬件细节。向下实现访问各种具体设备驱动的接口，比如 disk 设备接口/串口设备接口/键盘设备接口等。
+
+struct device: 表示一个设备及对应的开关读写操作
+
 具体的文件写的流程如下图：
 ![](文件写流程.png)
 对照上面的层次我们再大致介绍一下文件系统的访问处理过程，加深对文件系统的总体理解。假如应用程序操作文件（打开/创建/删除/读写），首先需要通过文件系统的通用文件系统访问接口层给用户空间提供的访问接口进入文件系统内部，接着由文件系统抽象层把访问请求转发给某一具体文件系统（比如 SFS 文件系统），具体文件系统（Simple FS 文件系统层）把应用程序的访问请求转化为对磁盘上的 block 的处理请求，并通过外设接口层交给磁盘驱动例程来完成具体的磁盘操作。
@@ -533,7 +561,7 @@ file_open(char *path, uint32_t open_flags) {
         }
         file->pos = stat->st_size;//追加写模式，设置当前位置为文件尾
     }
-    file->node = node;
+    file->node = node;//current->fs_struct->filemap[fd]
     file->readable = readable;
     file->writable = writable;
     fd_array_open(file);//设置该文件的状态为“打开”
