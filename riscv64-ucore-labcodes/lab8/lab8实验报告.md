@@ -631,6 +631,260 @@ sfs_lookup_once里面将调用sfs_dirent_search_nolock函数来查找与路径�
 ## 练习2: 完成基于文件系统的执行程序机制的实现（需要编码）
 改写proc.c中的load_icode函数和其他相关函数，实现基于文件系统的执行程序机制。执行：make qemu。如果能看看到sh用户程序的执行界面，则基本成功了。如果在sh用户界面上可以执行”ls”,”hello”等其他放置在sfs文件系统中的其他执行程序，则可以认为本实验基本成功。
 
+根据注释，proc.c中需要添加补充的地方有两处，分别是`alloc_proc`和`load_icode`两个函数。
+
+### alloc_proc
+由注释可知，需要初始化进程控制结构中的fs，即添加对`proc->filesp`的初始化。
+```C
+static proc_struct* alloc_proc(void) {
+    struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
+    if (proc != NULL) {
+        // ...
+        //LAB8:EXERCISE2 YOUR CODE HINT:need add some code to init fs in proc_struct, ...
+        proc->filesp = NULL;
+    }
+    return proc;
+}
+```
+
+### load_icode
+根据实验指导书，lab8和lab5中`load_icode`函数代码最大不同的地方在于读取EFL文件的方式，lab5中是通过获取ELF在内存中的位置，根据ELF的格式进行解析，而在lab8中则是通过ELF文件的文件描述符调用`load_icode_read`函数来进行解析程序，并且原先`load_icode`函数中并没有对`execve`所执行的程序传入参数，而我们需要在lab8中补充这个实现。不同之处在下面的注释中都标注了“Lab8”的字样。
+```C
+static int
+load_icode(int fd, int argc, char **kargv) {
+    assert(argc >= 0 && argc <= EXEC_MAX_ARG_NUM);
+    //(1)建立内存管理器
+    if (current->mm != NULL) {    //要求当前内存管理器为空
+        panic("load_icode: current->mm must be empty.\n");
+    }
+
+    int ret = -E_NO_MEM;    // E_NO_MEM代表因为存储设备产生的请求错误
+    struct mm_struct *mm;  //建立内存管理器
+    if ((mm = mm_create()) == NULL) {
+        goto bad_mm;
+    }
+
+    //(2)建立页目录
+    if (setup_pgdir(mm) != 0) {
+        goto bad_pgdir_cleanup_mm;
+    }
+    struct Page *page;//建立页表
+
+    //(3)从文件加载数据到内存
+    //Lab8 这里要从文件中读取ELF文件头，而不是原先的内存
+    struct elfhdr __elf, *elf = &__elf;
+    if ((ret = load_icode_read(fd, elf, sizeof(struct elfhdr), 0)) != 0) {//读取elf文件头
+        goto bad_elf_cleanup_pgdir;           
+    }
+    // 判断读取入的elf header是否正确
+    if (elf->e_magic != ELF_MAGIC) {
+        ret = -E_INVAL_ELF;
+        goto bad_elf_cleanup_pgdir;
+    }
+    // 根据每一段的大小和基地址来分配不同的内存空间
+    struct proghdr __ph, *ph = &__ph;
+    uint32_t vm_flags, perm, phnum;
+    for (phnum = 0; phnum < elf->e_phnum; phnum ++) {  //e_phnum代表程序段入口地址数目，即多少个段
+        //Lab8 计算elf程序每个段头部的偏移
+        off_t phoff = elf->e_phoff + sizeof(struct proghdr) * phnum;     
+        //Lab8 从每个段头部的偏移处循环读取每个段的详细信息（包括大小、基地址等）到ph中
+        if ((ret = load_icode_read(fd, ph, sizeof(struct proghdr), phoff)) != 0) {
+            goto bad_cleanup_mmap;
+        }
+        if (ph->p_type != ELF_PT_LOAD) {
+            continue ;
+        }
+        if (ph->p_filesz > ph->p_memsz) {
+            ret = -E_INVAL_ELF;
+            goto bad_cleanup_mmap;
+        }
+        if (ph->p_filesz == 0) {
+            continue ;
+        }
+        vm_flags = 0, perm = PTE_U;
+        if (ph->p_flags & ELF_PF_X) vm_flags |= VM_EXEC;
+        if (ph->p_flags & ELF_PF_W) vm_flags |= VM_WRITE;
+        if (ph->p_flags & ELF_PF_R) vm_flags |= VM_READ;
+        if (vm_flags & VM_WRITE) perm |= PTE_W;
+        //为当前段分配内存空间（设置vma）
+        if ((ret = mm_map(mm, ph->p_va, ph->p_memsz, vm_flags, NULL)) != 0) {
+            goto bad_cleanup_mmap;
+        }
+        off_t offset = ph->p_offset;
+        size_t off, size;
+        uintptr_t start = ph->p_va, end, la = ROUNDDOWN(start, PGSIZE);
+
+        ret = -E_NO_MEM;
+
+        //复制数据段和代码段
+        end = ph->p_va + ph->p_filesz;      //计算数据段和代码段终止地址
+        while (start < end) {       
+            // 为la分配内存页并设置该内存页所对应的页表项        
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+                ret = -E_NO_MEM;
+                goto bad_cleanup_mmap;
+            }
+            off = start - la, size = PGSIZE - off, la += PGSIZE;
+            if (end < la) {
+                size -= la - end;
+            }
+            //Lab8 读取elf对应段内的数据到该内存页中，每次读取size大小的块，直至全部读完
+            if ((ret = load_icode_read(fd, page2kva(page) + off, size, offset)) != 0) {       
+                goto bad_cleanup_mmap;
+            }
+            start += size, offset += size;
+        }
+        //建立BSS段
+        end = ph->p_va + ph->p_memsz;   //同样计算终止地址
+        // 对于段中当前页中剩余的空间（复制elf数据后剩下的空间），将其置为0
+        if (start < la) {     
+            if (start == end) {   
+                continue ;
+            }
+            off = start + PGSIZE - la, size = PGSIZE - off;
+            if (end < la) {
+                size -= la - end;
+            }
+            memset(page2kva(page) + off, 0, size);
+            start += size;
+            assert((end < la && start == end) || (end >= la && start == la));
+        }
+        // 对于段中剩余页中的空间（复制elf数据后的多余页面），将其置为0
+        while (start < end) {
+            if ((page = pgdir_alloc_page(mm->pgdir, la, perm)) == NULL) {
+                ret = -E_NO_MEM;
+                goto bad_cleanup_mmap;
+            }
+            off = start - la, size = PGSIZE - off, la += PGSIZE;
+            if (end < la) {
+                size -= la - end;
+            }
+            //每次操作size大小的块
+            memset(page2kva(page) + off, 0, size);
+            start += size;
+        }
+    }
+    sysfile_close(fd);//关闭文件，加载程序结束
+
+    //(4)建立相应的虚拟内存映射表
+    vm_flags = VM_READ | VM_WRITE | VM_STACK;
+    if ((ret = mm_map(mm, USTACKTOP - USTACKSIZE, USTACKSIZE, vm_flags, NULL)) != 0) {
+        goto bad_cleanup_mmap;
+    }
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-PGSIZE , PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-2*PGSIZE , PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-3*PGSIZE , PTE_USER) != NULL);
+    assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-4*PGSIZE , PTE_USER) != NULL);
+    //(5)设置当前进程的mm、sr3，并设置CR3寄存器等于页目录表的物理地址
+    current->mm = mm;
+    current->cr3 = PADDR(mm->pgdir);
+    lcr3(PADDR(mm->pgdir));
+
+    //(6)Lab8 设置用户栈，处理用户栈中传入的参数，其中argc为参数个数，kargv存储命令行参数，uargv存储用户参数
+    uint32_t argv_size=0, i;
+    for (i = 0; i < argc; i ++) {//计算所有参数的总长度
+        argv_size += strnlen(kargv[i],EXEC_MAX_ARG_LEN + 1)+1;
+    }
+
+    uintptr_t stacktop = USTACKTOP - (argv_size/sizeof(long)+1)*sizeof(long);//开辟用户栈空间
+    // 计算uargv在用户栈的位置
+    char** uargv=(char **)(stacktop  - argc * sizeof(char *));
+
+    argv_size = 0;
+    for (i = 0; i < argc; i ++) {//将所有参数取出来放置uargv
+        uargv[i] = strcpy((char *)(stacktop + argv_size ), kargv[i]);
+        argv_size +=  strnlen(kargv[i],EXEC_MAX_ARG_LEN + 1)+1;
+    }
+
+    stacktop = (uintptr_t)uargv - sizeof(int);//在用户栈中开辟一个整数的空间存储argc
+    *(int *)stacktop = argc;//将argc存储在栈顶位置
+    //(7)设置进程的中断帧   
+    struct trapframe *tf = current->tf;     
+    memset(tf, 0, sizeof(struct trapframe));//清空进程的中断帧
+    tf->tf_cs = USER_CS;      
+    tf->tf_ds = tf->tf_es = tf->tf_ss = USER_DS;
+    tf->tf_esp = stacktop;
+    tf->tf_eip = elf->e_entry;
+    tf->tf_eflags = FL_IF;
+    ret = 0;
+    //(8)错误处理部分
+out:
+    return ret;           //返回
+bad_cleanup_mmap:
+    exit_mmap(mm);
+bad_elf_cleanup_pgdir:
+    put_pgdir(mm);
+bad_pgdir_cleanup_mm:
+    mm_destroy(mm);
+bad_mm:
+    goto out;
+}
+```
+### load_icode_read
+接下来再分析一下上述代码中出现的一个比较重要的函数`load_icode_read`。
+```C
+static int
+load_icode_read(int fd, void *buf, size_t len, off_t offset) {
+    int ret;
+    if ((ret = sysfile_seek(fd, offset, LSEEK_SET)) != 0) {
+        return ret;
+    }
+    if ((ret = sysfile_read(fd, buf, len)) != len) {
+        return (ret < 0) ? ret : -1;
+    }
+    return 0;
+}
+```
+这个函数是用来从文件描述符fd指向的文件中读取数据到buf中的。函数的入参包括fd（文件描述符）、buf（指向读取数据的缓冲区）、len（要读取的数据长度）和offset（文件中的偏移量）。
+
+函数首先调用`sysfile_seek`函数将文件指针移动到指定的偏移量处。如果`sysfile_seek`返回错误码，则`load_icode_read`直接返回该错误码。
+
+接着，函数调用`sysfile_read`函数从文件中读取指定长度的数据到buf中。如果读取的数据长度不等于要求的长度len，则`load_icode_read`返回错误码-1；如果读取过程中发生了错误，则`load_icode_read`返回`sysfile_read`函数的错误码。
+
+最后，如果函数执行成功，则load_icode_read返回0。
+
+其中，内核函数`sysfile_read`是文件系统抽象层中用于读文件的函数，相关分析见练习1。而函数`sysfile_seek`是通过调用`file_seek`函数实现的。
+```C
+//kern/fs/sysfile.c
+int
+sysfile_seek(int fd, off_t pos, int whence) {
+    return file_seek(fd, pos, whence);
+}
+
+//kern/fs/file.c
+int
+file_seek(int fd, off_t pos, int whence) {
+    struct stat __stat, *stat = &__stat;
+    int ret;
+    struct file *file;
+    if ((ret = fd2file(fd, &file)) != 0) {
+        return ret;
+    }
+    fd_array_acquire(file);
+
+    switch (whence) {
+    case LSEEK_SET: break;
+    case LSEEK_CUR: pos += file->pos; break;
+    case LSEEK_END:
+        if ((ret = vop_fstat(file->node, stat)) == 0) {
+            pos += stat->st_size;
+        }
+        break;
+    default: ret = -E_INVAL;
+    }
+
+    if (ret == 0) {
+        if ((ret = vop_tryseek(file->node, pos)) == 0) {
+            file->pos = pos;
+        }
+//    cprintf("file_seek, pos=%d, whence=%d, ret=%d\n", pos, whence, ret);
+    }
+    fd_array_release(file);
+    return ret;
+}
+```
+函数`file_seek`首先调用`fd2file`函数将文件描述符转换成文件结构体指针，然后根据whence参数的值和当前文件的位置计算出新的偏移量pos，接着它通过调用`vop_tryseek`来检查这个新的偏移量是否合法。如果合法，那么就将文件的当前位置更新为这个新的偏移量pos。
+
 ## 扩展练习 Challenge1：完成基于“UNIX的PIPE机制”的设计方案
 如果要在ucore里加入UNIX的管道（Pipe）机制，至少需要定义哪些数据结构和接口？（接口给出语义即可，不必具体实现。数据结构的设计应当给出一个（或多个）具体的C语言struct定义。在网络上查找相关的Linux资料和实现，请在实验报告中给出设计实现”UNIX的PIPE机制“的概要设方案，你的设计应当体现出对可能出现的同步互斥问题的处理。）
 
