@@ -4,6 +4,8 @@
 #include <ulib.h>
 #include <stat.h>
 #include <lock.h>
+#include <file.h>
+
 void
 exit(int error_code) {
     sys_exit(error_code);
@@ -62,6 +64,7 @@ int
 sleep(unsigned int time) {
     return sys_sleep(time);
 }
+
 int
 __exec(const char *name, const char **argv) {
     int argc = 0;

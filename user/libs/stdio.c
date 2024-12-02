@@ -87,3 +87,12 @@ fprintf(int fd, const char *fmt, ...) {
 
     return cnt;
 }
+
+int printf(const char* fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int cnt = vcprintf(fmt, ap);
+    va_end(ap);
+    return cnt;
+}
