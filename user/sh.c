@@ -1,28 +1,28 @@
-#include <ulib.h>
+#include <dir.h>
+#include <error.h>
+#include <file.h>
 #include <stdio.h>
 #include <string.h>
-#include <dir.h>
-#include <file.h>
-#include <error.h>
+#include <ulib.h>
 #include <unistd.h>
 
-#define printf(...)                     fprintf(1, __VA_ARGS__)
-#define putc(c)                         printf("%c", c)
+#define printf(...) fprintf(1, __VA_ARGS__)
+#define putc(c) printf("%c", c)
 
-#define BUFSIZE                         4096
-#define WHITESPACE                      " \t\r\n"
-#define SYMBOLS                         "<|>&;"
+#define BUFSIZE 4096
+#define WHITESPACE " \t\r\n"
+#define SYMBOLS "<|>&;"
 
 char shcwd[BUFSIZE];
 
-int
-gettoken(char **p1, char **p2) {
-    char *s;
+int gettoken(char** p1, char** p2)
+{
+    char* s;
     if ((s = *p1) == NULL) {
         return 0;
     }
     while (strchr(WHITESPACE, *s) != NULL) {
-        *s ++ = '\0';
+        *s++ = '\0';
     }
     if (*s == '\0') {
         return 0;
@@ -31,23 +31,22 @@ gettoken(char **p1, char **p2) {
     *p2 = s;
     int token = 'w';
     if (strchr(SYMBOLS, *s) != NULL) {
-        token = *s, *s ++ = '\0';
-    }
-    else {
+        token = *s, *s++ = '\0';
+    } else {
         bool flag = 0;
         while (*s != '\0' && (flag || strchr(WHITESPACE SYMBOLS, *s) == NULL)) {
             if (*s == '"') {
                 *s = ' ', flag = !flag;
             }
-            s ++;
+            s++;
         }
     }
     *p1 = (*s != '\0' ? s : NULL);
     return token;
 }
 
-char *
-readline(const char *prompt) {
+char* readline(const char* prompt)
+{
     static char buffer[BUFSIZE];
     if (prompt != NULL) {
         printf("%s", prompt);
@@ -57,8 +56,7 @@ readline(const char *prompt) {
         char c;
         if ((ret = read(0, &c, sizeof(char))) < 0) {
             return NULL;
-        }
-        else if (ret == 0) {
+        } else if (ret == 0) {
             if (i > 0) {
                 buffer[i] = '\0';
                 break;
@@ -68,16 +66,13 @@ readline(const char *prompt) {
 
         if (c == 3) {
             return NULL;
-        }
-        else if (c >= ' ' && i < BUFSIZE - 1) {
+        } else if (c >= ' ' && i < BUFSIZE - 1) {
             putc(c);
-            buffer[i ++] = c;
-        }
-        else if (c == '\b' && i > 0) {
+            buffer[i++] = c;
+        } else if (c == '\b' && i > 0) {
             putc(c);
-            i --;
-        }
-        else if (c == '\n' || c == '\r') {
+            i--;
+        } else if (c == '\n' || c == '\r') {
             putc(c);
             buffer[i] = '\0';
             break;
@@ -86,13 +81,13 @@ readline(const char *prompt) {
     return buffer;
 }
 
-void
-usage(void) {
+void usage(void)
+{
     printf("usage: sh [command-file]\n");
 }
 
-int
-reopen(int fd2, const char *filename, uint32_t open_flags) {
+int reopen(int fd2, const char* filename, uint32_t open_flags)
+{
     int ret, fd1;
     close(fd2);
     if ((ret = open(filename, open_flags)) >= 0 && ret != fd2) {
@@ -103,8 +98,8 @@ reopen(int fd2, const char *filename, uint32_t open_flags) {
     return ret < 0 ? ret : 0;
 }
 
-int
-testfile(const char *name) {
+int testfile(const char* name)
+{
     int ret;
     if ((ret = open(name, O_RDONLY)) < 0) {
         return ret;
@@ -113,11 +108,11 @@ testfile(const char *name) {
     return 0;
 }
 
-int
-runcmd(char *cmd) {
+int runcmd(char* cmd)
+{
     static char argv0[BUFSIZE];
-    static const char *argv[EXEC_MAX_ARG_NUM + 1];//must be static!
-    char *t;
+    static const char* argv[EXEC_MAX_ARG_NUM + 1]; // must be static!
+    char* t;
     int argc, token, ret, p[2];
 again:
     argc = 0;
@@ -128,7 +123,9 @@ again:
                 printf("sh error: too many arguments\n");
                 return -1;
             }
-            argv[argc ++] = t;
+            // printf("t:%s\n", t);
+            argv[argc++] = t;
+            // printf("runcmd argc:%d\n", argc);
             break;
         case '<':
             if (gettoken(&cmd, &t) != 'w') {
@@ -149,9 +146,9 @@ again:
             }
             break;
         case '|':
-          //  if ((ret = pipe(p)) != 0) {
-          //      return ret;
-          //  }
+            //  if ((ret = pipe(p)) != 0) {
+            //      return ret;
+            //  }
             if ((ret = fork()) == 0) {
                 close(0);
                 if ((ret = dup2(p[0], 0)) < 0) {
@@ -159,8 +156,7 @@ again:
                 }
                 close(p[0]), close(p[1]);
                 goto again;
-            }
-            else {
+            } else {
                 if (ret < 0) {
                     return ret;
                 }
@@ -177,8 +173,7 @@ again:
         case ';':
             if ((ret = fork()) == 0) {
                 goto runit;
-            }
-            else {
+            } else {
                 if (ret < 0) {
                     return ret;
                 }
@@ -195,8 +190,7 @@ again:
 runit:
     if (argc == 0) {
         return 0;
-    }
-    else if (strcmp(argv[0], "cd") == 0) {
+    } else if (strcmp(argv[0], "cd") == 0) {
         if (argc != 2) {
             return -1;
         }
@@ -211,11 +205,13 @@ runit:
         argv[0] = argv0;
     }
     argv[argc] = NULL;
+    // printf("argv[0]: %s\n", argv[0]);
+    assert(argv[argc] == NULL);
     return __exec(argv[0], argv);
 }
 
-int
-main(int argc, char **argv) {
+int main(int argc, char** argv)
+{
     cputs("user sh is running!!!");
     int ret, interactive = 1;
     if (argc == 2) {
@@ -223,23 +219,25 @@ main(int argc, char **argv) {
             return ret;
         }
         interactive = 0;
-    }
-    else if (argc > 2) {
+    } else if (argc > 2) {
         usage();
         return -1;
     }
-    //shcwd = malloc(BUFSIZE);
+    // shcwd = malloc(BUFSIZE);
     assert(shcwd != NULL);
 
-    char *buffer;
+    char* buffer;
     while ((buffer = readline((interactive) ? "$ " : NULL)) != NULL) {
         shcwd[0] = '\0';
         int pid;
+        // printf("buffer: %s\n", buffer);
         if ((pid = fork()) == 0) {
+            // printf("buffer: %s\n", buffer);
             ret = runcmd(buffer);
             exit(ret);
         }
         assert(pid >= 0);
+        // printf("pid: %d\n", pid);
         if (waitpid(pid, &ret) == 0) {
             if (ret == 0 && shcwd[0] != '\0') {
                 ret = 0;
@@ -251,4 +249,3 @@ main(int argc, char **argv) {
     }
     return 0;
 }
-

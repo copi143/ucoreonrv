@@ -23,6 +23,8 @@ void __noreturn __panic(const char *file, int line, const char *fmt, ...);
 #define static_assert(x)                                \
     switch (x) { case 0: case (x): ; }
 
+#define printf(...) fprintf(1, __VA_ARGS__)
+
 void __noreturn exit(int error_code);
 int fork(void);
 int wait(void);
@@ -36,5 +38,6 @@ void lab6_set_priority(uint32_t priority);
 int sleep(unsigned int time);
 int fprintf(int fd, const char* fmt, ...);
 int __exec(const char* name, const char** argv);
+int unlink(const char* path);
 #endif /* !__USER_LIBS_ULIB_H__ */
 

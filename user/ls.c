@@ -1,4 +1,3 @@
-
 #include <dir.h>
 #include <dirent.h>
 #include <file.h>
@@ -8,7 +7,6 @@
 #include <ulib.h>
 #include <unistd.h>
 
-#define printf(...) fprintf(1, __VA_ARGS__)
 #define BUFSIZE 4096
 
 static char
@@ -122,7 +120,8 @@ int ls(const char* path)
 
 int main(int argc, char** argv)
 {
-    if (argc == 1) {
+    // printf("ls argc = %d\n", argc);
+    if (argc == 0 || argc == 1) {
         return ls(".");
     } else {
         int i, ret;

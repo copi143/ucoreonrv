@@ -156,6 +156,7 @@ add_executable(lab8
         user/forktest.c
         user/forktree.c
         user/hello.c
+        user/ls.c
         user/matrix.c
         user/pgdir.c
         user/priority.c

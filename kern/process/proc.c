@@ -786,7 +786,9 @@ bad_mm:
 
 // this function isn't very correct in LAB8
 static void
-put_kargv(int argc, char **kargv) {
+put_kargv(int argc, char** kargv)
+{
+    // cprintf("put_kargv argc:%d\n", argc);
     while (argc > 0) {
         kfree(kargv[-- argc]);
     }
@@ -873,6 +875,7 @@ do_execve(const char *name, int argc, const char **argv) {
         goto execve_exit;
     }
     put_kargv(argc, kargv);
+    // cprintf("do_execve after put_kargv argc:%d\n", argc);
     set_proc_name(current, local_name);
     return 0;
 

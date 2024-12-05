@@ -30,7 +30,8 @@ static int
 sys_exec(uint64_t arg[]) {
     const char *name = (const char *)(arg[0]);
     int argc = (int)arg[1];
-    const char **argv = (const char **)arg[2];
+    const char** argv = (const char**)arg[2];
+    // cprintf("kernel sys_exec: name: %s, argc: %d\n", name, argc);
     return do_execve(name, argc, argv);
 }
 
@@ -58,8 +59,14 @@ sys_putc(uint64_t arg[]) {
 }
 
 static int
+sys_unlink(uint64_t arg[]) {
+    const char *path = (const char *)arg[0];
+    return sysfile_unlink(path);
+}
+
+static int
 sys_pgdir(uint64_t arg[]) {
-    //print_pgdir();
+    // print_pgdir();
     return 0;
 }
 static int sys_gettime(uint64_t arg[]){
@@ -154,6 +161,7 @@ static int (*syscalls[])(uint64_t arg[]) = {
     [SYS_kill]              sys_kill,
     [SYS_getpid]            sys_getpid,
     [SYS_putc]              sys_putc,
+    [SYS_unlink]            sys_unlink,
     [SYS_pgdir]             sys_pgdir,
     [SYS_gettime]           sys_gettime,
     [SYS_lab6_set_priority] sys_lab6_set_priority,

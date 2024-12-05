@@ -1,3 +1,4 @@
+#include "stdio.h"
 #include <defs.h>
 #include <unistd.h>
 #include <stdarg.h>
@@ -96,8 +97,9 @@ sys_gettime(void) {
     return syscall(SYS_gettime);
 }
 
-int
-sys_exec(const char *name, int64_t argc, const char **argv) {
+int sys_exec(const char* name, int64_t argc, const char** argv)
+{
+    // cprintf("user sys_exec: name: %s, argc: %d\n", name, argc);
     return syscall(SYS_exec, name, argc, argv);
 }
 
@@ -149,4 +151,9 @@ sys_getdirentry(int64_t fd, struct dirent *dirent) {
 int
 sys_dup(int64_t fd1, int64_t fd2) {
     return syscall(SYS_dup, fd1, fd2);
+}
+
+int sys_unlink(const char *path)
+{
+    return syscall(SYS_unlink, path);
 }

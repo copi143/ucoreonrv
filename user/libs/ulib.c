@@ -71,5 +71,13 @@ __exec(const char *name, const char **argv) {
     while (argv[argc] != NULL) {
         argc ++;
     }
+    // cprintf("__exec argc = %d\n", argc);
+    // cprintf("__exec name = %s\n", name);
+    // cprintf("__exec argv[0] = %s\n", argv[0]);
     return sys_exec(name, argc, argv);
+}
+
+int unlink(const char* path)
+{
+    return sys_unlink(path);
 }

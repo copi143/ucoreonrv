@@ -19,6 +19,7 @@
 #define SYS_shmem           22
 #define SYS_putc            30
 #define SYS_pgdir           31
+#define SYS_unlink          38
 #define SYS_open            100
 #define SYS_close           101
 #define SYS_read            102

@@ -13,7 +13,7 @@ int sys_pgdir(void);
 int sys_sleep(int64_t time);
 int sys_gettime(void);
 
-struct stat;
+    struct stat;
 struct dirent;
 
 int sys_open(const char *path, uint64_t open_flags);
@@ -27,6 +27,7 @@ int sys_getcwd(char *buffer, size_t len);
 int sys_getdirentry(int64_t fd, struct dirent *dirent);
 int sys_dup(int64_t fd1, int64_t fd2);
 void sys_lab6_set_priority(uint64_t priority); //only for lab6
+int sys_unlink(const char *path);
 
 
 #endif /* !__USER_LIBS_SYSCALL_H__ */
