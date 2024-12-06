@@ -203,7 +203,8 @@ KINCLUDE	+= kern/debug/ \
 			   kern/fs/swap/ \
 			   kern/fs/vfs/ \
 			   kern/fs/devs/ \
-			   kern/fs/sfs/
+			   kern/fs/sfs/	\
+			   kern/log/
 
 
 KSRCDIR		+= kern/init \

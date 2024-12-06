@@ -1,3 +1,4 @@
+#include "log.h"
 #include <proc.h>
 #include <kmalloc.h>
 #include <string.h>
@@ -80,10 +81,15 @@ struct proc_struct *current = NULL;
 
 static int nr_process = 0;
 
+
 void kernel_thread_entry(void);
 void forkrets(struct trapframe *tf);
 void switch_to(struct context *from, struct context *to);
 
+// current_pid - get current process's pid
+int current_pid() {
+    return current->pid;
+}
 // alloc_proc - alloc a proc_struct and init all fields of proc_struct
 static struct proc_struct *
 alloc_proc(void) {

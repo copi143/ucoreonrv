@@ -109,13 +109,4 @@ enum LOG_COLOR {
 #define tracef(fmt, ...) /*dummy(0, ##__VA_ARGS__)*/
 #endif // USE_LOG_TRACE
 
-#define panic(fmt, ...)                                                        \
-	do {                                                                   \
-		int tid = current_pid();                                          \
-		cprintf("\x1b[%dm[%s %d] %s:%d: " fmt "\x1b[0m\n", RED,         \
-		       "PANIC", tid, __FILE__, __LINE__, ##__VA_ARGS__);       \
-		shutdown();                                                    \
-		__builtin_unreachable();                                       \
-	} while (0)
-
 #endif //! LOG_H
