@@ -39,5 +39,6 @@ int sleep(unsigned int time);
 int fprintf(int fd, const char* fmt, ...);
 int __exec(const char* name, const char** argv);
 int unlink(const char* path);
+int ps(void);
 #endif /* !__USER_LIBS_ULIB_H__ */
 

@@ -81,3 +81,8 @@ int unlink(const char* path)
 {
     return sys_unlink(path);
 }
+
+int ps(void)
+{
+    return sys_ps();
+}

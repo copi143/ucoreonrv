@@ -617,7 +617,7 @@ load_icode(int fd, int argc, char **kargv) {
      *  lcr3             - update Page Directory Addr Register -- CR3
      */
   //You can Follow the code form LAB5 which you have completed  to complete 
- /* (1) create a new mm for current process 
+    /* (1) create a new mm for current process 
      * (2) create a new PDT, and mm->pgdir= kernel virtual addr of PDT
      * (3) copy TEXT/DATA/BSS parts in binary to memory space of process
      *    (3.1) read raw data content in file and resolve elfhdr
@@ -788,7 +788,6 @@ bad_mm:
 static void
 put_kargv(int argc, char** kargv)
 {
-    // cprintf("put_kargv argc:%d\n", argc);
     while (argc > 0) {
         kfree(kargv[-- argc]);
     }
@@ -858,6 +857,7 @@ do_execve(const char *name, int argc, const char **argv) {
 
     /* sysfile_open will check the first argument path, thus we have to use a user-space pointer, and argv[0] may be incorrect */
     int fd;
+    // cprintf("do_execve path: %s\n", path);
     if ((ret = fd = sysfile_open(path, O_RDONLY)) < 0) {
         goto execve_exit;
     }
@@ -870,7 +870,7 @@ do_execve(const char *name, int argc, const char **argv) {
         }
         current->mm = NULL;
     }
-    ret= -E_NO_MEM;;
+    ret= -E_NO_MEM;
     if ((ret = load_icode(fd, argc, kargv)) != 0) {
         goto execve_exit;
     }
@@ -969,6 +969,38 @@ do_kill(int pid) {
         return -E_KILLED;
     }
     return -E_INVAL;
+}
+
+// do_ps - show process information
+int
+do_ps(void) {
+    struct proc_struct *proc;
+    cprintf("PID\tName\tStatus\n");
+    list_entry_t *list = &proc_list;
+    while ((list = list_next(list)) != &proc_list) {
+        proc = le2proc(list, list_link);
+        cprintf("%d\t%s\t", proc->pid, proc->name);
+        switch (proc->state) {
+        case PROC_UNINIT:
+            cprintf("UNINIT\n");
+            break;
+        case PROC_SLEEPING:
+            cprintf("SLEEPING\n");
+            break;
+        case PROC_RUNNABLE:
+            cprintf("RUNNABLE\n");
+            break;
+        case PROC_ZOMBIE:
+            cprintf("ZOMBIE\n");
+            break;
+            cprintf("RUNNING\n");
+            break;
+        default:
+            cprintf("ERROR\n");
+            break;
+        }
+    }
+    return 0;
 }
 
 // kernel_execve - do SYS_exec syscall to exec a user program called by user_main kernel_thread

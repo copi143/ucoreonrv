@@ -182,7 +182,7 @@ struct inode_ops {
     int (*vop_truncate)(struct inode *node, off_t len);
     int (*vop_create)(struct inode *node, const char *name, bool excl, struct inode **node_store);
     int (*vop_lookup)(struct inode *node, char *path, struct inode **node_store);
-    int (*vop_ioctl)(struct inode *node, int op, void *data);
+    int (*vop_ioctl)(struct inode* node, int op, void* data);
 };
 
 /*

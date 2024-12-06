@@ -13,5 +13,8 @@ void srand(unsigned int seed);
 /* libs/hash.c */
 uint32_t hash32(uint32_t val, unsigned int bits);
 
+/* libs/atoi.c */
+int atoi(const char *nptr);
+
 #endif /* !__LIBS_RAND_H__ */
 

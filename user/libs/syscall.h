@@ -27,7 +27,8 @@ int sys_getcwd(char *buffer, size_t len);
 int sys_getdirentry(int64_t fd, struct dirent *dirent);
 int sys_dup(int64_t fd1, int64_t fd2);
 void sys_lab6_set_priority(uint64_t priority); //only for lab6
-int sys_unlink(const char *path);
+int sys_unlink(const char* path);
+int sys_ps(void);
 
 
 #endif /* !__USER_LIBS_SYSCALL_H__ */

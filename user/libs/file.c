@@ -46,8 +46,8 @@ dup2(int fd1, int fd2) {
     return sys_dup(fd1, fd2);
 }
 
-static char
-transmode(struct stat *stat) {
+static char transmode(struct stat* stat)
+{
     uint32_t mode = stat->st_mode;
     if (S_ISREG(mode)) return 'r';
     if (S_ISDIR(mode)) return 'd';

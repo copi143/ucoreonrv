@@ -12,6 +12,7 @@
 #define SYS_yield           10
 #define SYS_sleep           11
 #define SYS_kill            12
+#define SYS_ps              13
 #define SYS_gettime         17
 #define SYS_getpid          18
 #define SYS_mmap            20
@@ -30,6 +31,7 @@
 #define SYS_getcwd          121
 #define SYS_getdirentry     128
 #define SYS_dup             130
+#define SYS_pipe            131
 /* OLNY FOR LAB6 */
 #define SYS_lab6_set_priority 255
 

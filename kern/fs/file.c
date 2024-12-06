@@ -348,5 +348,3 @@ file_dup(int fd1, int fd2) {
     fd_array_dup(file2, file1);
     return file2->fd;
 }
-
-

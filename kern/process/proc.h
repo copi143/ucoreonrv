@@ -102,5 +102,6 @@ int do_execve(const char *name, int argc, const char **argv);
 int do_wait(int pid, int *code_store);
 int do_kill(int pid);
 int do_sleep(unsigned int time);
+int do_ps(void);
 #endif /* !__KERN_PROCESS_PROC_H__ */
 

@@ -157,3 +157,8 @@ int sys_unlink(const char *path)
 {
     return syscall(SYS_unlink, path);
 }
+
+int sys_ps()
+{
+    return syscall(SYS_ps);
+}

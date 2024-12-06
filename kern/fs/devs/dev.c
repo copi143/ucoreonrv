@@ -129,16 +129,16 @@ dev_lookup(struct inode *node, char *path, struct inode **node_store) {
  * Function table for device inodes.
  */
 static const struct inode_ops dev_node_ops = {
-    .vop_magic                      = VOP_MAGIC,
-    .vop_open                       = dev_open,
-    .vop_close                      = dev_close,
-    .vop_read                       = dev_read,
-    .vop_write                      = dev_write,
-    .vop_fstat                      = dev_fstat,
-    .vop_ioctl                      = dev_ioctl,
-    .vop_gettype                    = dev_gettype,
-    .vop_tryseek                    = dev_tryseek,
-    .vop_lookup                     = dev_lookup,
+    .vop_magic = VOP_MAGIC,
+    .vop_open = dev_open,
+    .vop_close = dev_close,
+    .vop_read = dev_read,
+    .vop_write = dev_write,
+    .vop_fstat = dev_fstat,
+    .vop_ioctl = dev_ioctl,
+    .vop_gettype = dev_gettype,
+    .vop_tryseek = dev_tryseek,
+    .vop_lookup = dev_lookup,
 };
 
 #define init_device(x)                                  \
