@@ -5,6 +5,13 @@ SLASH	:= /
 
 V       := @
 
+#-------------------------------------------------------------------------------//
+
+# 日志控制宏
+LOG ?= trace
+
+#------------------------------------------------------------------------------//
+
 ifndef GCCPREFIX
 GCCPREFIX := riscv64-unknown-elf-
 endif
@@ -33,6 +40,21 @@ CC		:= $(GCCPREFIX)gcc
 CFLAGS  := -mcmodel=medany -O2 -std=gnu99 -Wno-unused -ggdb
 CFLAGS	+= -fno-builtin -Wall -nostdinc $(DEFS)
 CFLAGS	+= -fno-stack-protector -ffunction-sections -fdata-sections
+
+#---------------------------------------------------------------------------------//
+ifeq ($(LOG), error)
+CFLAGS += -D LOG_LEVEL_ERROR
+else ifeq ($(LOG), warn)
+CFLAGS += -D LOG_LEVEL_WARN
+else ifeq ($(LOG), info)
+CFLAGS += -D LOG_LEVEL_INFO
+else ifeq ($(LOG), debug)
+CFLAGS += -D LOG_LEVEL_DEBUG
+else ifeq ($(LOG), trace)
+CFLAGS += -D LOG_LEVEL_TRACE
+endif
+#---------------------------------------------------------------------------------//
+
 CTYPE	:= c S
 
 LD      := $(GCCPREFIX)ld
