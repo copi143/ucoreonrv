@@ -212,7 +212,7 @@ runit:
 
 int main(int argc, char** argv)
 {
-    cputs("user sh is running!!!");
+    cprintf("user sh is running!!!\n");
     int ret, interactive = 1;
     if (argc == 2) {
         if ((ret = reopen(0, argv[1], O_RDONLY)) != 0) {

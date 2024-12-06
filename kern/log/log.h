@@ -5,7 +5,6 @@
 
 extern int current_pid();
 
-
 #if defined(LOG_LEVEL_ERROR)
 
 #define USE_LOG_ERROR

@@ -184,6 +184,7 @@ sys_dup(uint64_t arg[])
     return sysfile_dup(fd1, fd2);
 }
 
+
 static int (*syscalls[])(uint64_t arg[]) = {
     [SYS_exit] sys_exit,
     [SYS_fork] sys_fork,
@@ -211,12 +212,12 @@ static int (*syscalls[])(uint64_t arg[]) = {
     [SYS_dup] sys_dup,
 };
 
-static char* syscalls_name[28] = {
+static char* syscalls_name[] = {
     "",
     "exit", "fork", "wait", "exec", "clone", "yield", "sleep", "kill", "ps",
     "gettime", "getpid", "mmap", "munmap", "shmem", "putc", "pgdir",
     "unlink", "open", "close", "read", "write", "seek", "fstat", "fsync",
-    "getcwd", "getdirentry", "dup"
+    "getcwd", "getdirentry", "dup",
 };
 
 #define NUM_SYSCALLS ((sizeof(syscalls)) / (sizeof(syscalls[0])))
@@ -234,8 +235,10 @@ void syscall(void)
             arg[3] = tf->gpr.a4;
             arg[4] = tf->gpr.a5;
             tf->gpr.a0 = syscalls[num](arg);
-            tracef("syscall %d: %s, pid = %d, name = %s.",
-                num, syscalls_name[num], current->pid, current->name);
+            if (num != SYS_read && num != SYS_write && num != SYS_putc) {
+                tracef("syscall %d: %s, pid = %d, name = %s.",
+                    num, syscalls_name[num], current->pid, current->name);
+            }
             return;
         }
     }

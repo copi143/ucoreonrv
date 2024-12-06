@@ -1,6 +1,8 @@
 #ifndef __USER_LIBS_SYSCALL_H__
 #define __USER_LIBS_SYSCALL_H__
 
+#include <defs.h>
+
 int sys_exit(int64_t error_code);
 int sys_fork(void);
 int sys_wait(int64_t pid, int64_t *store);
@@ -13,7 +15,7 @@ int sys_pgdir(void);
 int sys_sleep(int64_t time);
 int sys_gettime(void);
 
-    struct stat;
+struct stat;
 struct dirent;
 
 int sys_open(const char *path, uint64_t open_flags);
@@ -29,7 +31,6 @@ int sys_dup(int64_t fd1, int64_t fd2);
 void sys_lab6_set_priority(uint64_t priority); //only for lab6
 int sys_unlink(const char* path);
 int sys_ps(void);
-
 
 #endif /* !__USER_LIBS_SYSCALL_H__ */
 
