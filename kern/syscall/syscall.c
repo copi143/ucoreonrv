@@ -227,22 +227,35 @@ void syscall(void)
     struct trapframe* tf = current->tf;
     uint64_t arg[5];
     int num = tf->gpr.a0;
+
     if (num >= 0 && num < NUM_SYSCALLS) {
         if (syscalls[num] != NULL) {
+            // 读取系统调用参数
             arg[0] = tf->gpr.a1;
             arg[1] = tf->gpr.a2;
             arg[2] = tf->gpr.a3;
             arg[3] = tf->gpr.a4;
             arg[4] = tf->gpr.a5;
+
+            // 记录系统调用的基本信息
+            tracef("Entering syscall %d: %s, pid = %d, name = %s, args = [%lx, %lx, %lx, %lx, %lx]",
+                   num, syscalls_name[num], current->pid, current->name, arg[0], arg[1], arg[2], arg[3], arg[4]);
+
+            // 执行系统调用
             tf->gpr.a0 = syscalls[num](arg);
+
+            // 记录系统调用完成信息
             if (num != SYS_read && num != SYS_write && num != SYS_putc) {
-                tracef("syscall %d: %s, pid = %d, name = %s.",
-                    num, syscalls_name[num], current->pid, current->name);
+                infof("Syscall %d: %s completed, pid = %d, name = %s, return = %lx",
+                      num, syscalls_name[num], current->pid, current->name, tf->gpr.a0);
             }
             return;
         }
     }
+
+    // 未定义的系统调用
     print_trapframe(tf);
-    panic("undefined syscall %d, pid = %d, name = %s.\n",
-        num, current->pid, current->name);
+    errorf("Undefined syscall %d, pid = %d, name = %s", num, current->pid, current->name);
+    panic("Undefined syscall %d, pid = %d, name = %s.\n", num, current->pid, current->name);
 }
+
