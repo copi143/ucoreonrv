@@ -1,4 +1,3 @@
-#include "log.h"
 #include <proc.h>
 #include <kmalloc.h>
 #include <string.h>
@@ -16,6 +15,8 @@
 #include <fs.h>
 #include <vfs.h>
 #include <sysfile.h>
+#include <log.h>
+
 /* ------------- process/thread mechanism design&implementation -------------
 (an simplified Linux process/thread mechanism )
 introduction:
@@ -189,6 +190,7 @@ set_links(struct proc_struct *proc) {
 // remove_links - clean the relation links of process
 static void
 remove_links(struct proc_struct *proc) {
+    infof("Removing process PID: %d from links", proc->pid);
     list_del(&(proc->list_link));
     if (proc->optr != NULL) {
         proc->optr->yptr = proc->yptr;
@@ -258,6 +260,7 @@ proc_run(struct proc_struct *proc) {
     *        MACROs or Functions:
      *       flush_tlb():          flush the tlb        
      */
+    debugf("Switching process from PID: %d to PID: %d", current->pid, proc->pid);
     bool intr_flag;
     struct proc_struct *prev = current, *next = proc;
     local_intr_save(intr_flag);
@@ -265,6 +268,7 @@ proc_run(struct proc_struct *proc) {
     lcr3(next->cr3);
     switch_to(&(prev->context), &(next->context));
     local_intr_restore(intr_flag);
+    infof("Process switch complete. Now running PID: %d", proc->pid);
     }
 }
 
@@ -547,10 +551,13 @@ bad_fork_cleanup_proc:
 //   3. call scheduler to switch to other process
 int
 do_exit(int error_code) {
+    infof("Process PID: %d is exiting with code: %d", current->pid, error_code);
     if (current == idleproc) {
+        errorf("Idle process attempted to exit");
         panic("idleproc exit.\n");
     }
     if (current == initproc) {
+        errorf("Init process attempted to exit");
         panic("initproc exit.\n");
     }
     struct mm_struct *mm = current->mm;
@@ -566,6 +573,7 @@ do_exit(int error_code) {
     }
     current->state = PROC_ZOMBIE;
     current->exit_code = error_code;
+    infof("Process PID: %d marked as ZOMBIE", current->pid);
     bool intr_flag;
     struct proc_struct *proc;
     local_intr_save(intr_flag);
@@ -903,6 +911,7 @@ do_yield(void) {
 // NOTE: only after do_wait function, all resources of the child proces are free.
 int
 do_wait(int pid, int *code_store) {
+    infof("Waiting for process PID: %d", pid);
     struct mm_struct *mm = current->mm;
     if (code_store != NULL) {
         if (!user_mem_check(mm, (uintptr_t)code_store, sizeof(int), 1)) {
@@ -945,6 +954,7 @@ repeat:
 
 found:
     if (proc == idleproc || proc == initproc) {
+        errorf("Attempted to wait on idleproc or initproc");
         panic("wait idleproc or initproc.\n");
     }
     if (code_store != NULL) {
@@ -958,6 +968,7 @@ found:
     local_intr_restore(intr_flag);
     put_kstack(proc);
     kfree(proc);
+    infof("Process PID: %d finished, cleaning up resources", proc->pid);
     return 0;
 }
 // do_kill - kill process with pid by set this process's flags with PF_EXITING
