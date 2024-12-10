@@ -184,32 +184,39 @@ sys_dup(uint64_t arg[])
     return sysfile_dup(fd1, fd2);
 }
 
+static int
+sys_pipe(uint64_t arg[])
+{
+    int* fd_store = (int*)arg[0];
+    return sysfile_pipe(fd_store);
+}
 
 static int (*syscalls[])(uint64_t arg[]) = {
-    [SYS_exit] sys_exit,
-    [SYS_fork] sys_fork,
-    [SYS_wait] sys_wait,
-    [SYS_exec] sys_exec,
-    [SYS_yield] sys_yield,
-    [SYS_kill] sys_kill,
-    [SYS_ps] sys_ps,
-    [SYS_getpid] sys_getpid,
-    [SYS_putc] sys_putc,
-    [SYS_unlink] sys_unlink,
-    [SYS_pgdir] sys_pgdir,
-    [SYS_gettime] sys_gettime,
-    [SYS_lab6_set_priority] sys_lab6_set_priority,
-    [SYS_sleep] sys_sleep,
-    [SYS_open] sys_open,
-    [SYS_close] sys_close,
-    [SYS_read] sys_read,
-    [SYS_write] sys_write,
-    [SYS_seek] sys_seek,
-    [SYS_fstat] sys_fstat,
-    [SYS_fsync] sys_fsync,
-    [SYS_getcwd] sys_getcwd,
-    [SYS_getdirentry] sys_getdirentry,
-    [SYS_dup] sys_dup,
+    [SYS_exit] = sys_exit,
+    [SYS_fork] = sys_fork,
+    [SYS_wait] = sys_wait,
+    [SYS_exec] = sys_exec,
+    [SYS_yield] = sys_yield,
+    [SYS_kill] = sys_kill,
+    [SYS_ps] = sys_ps,
+    [SYS_getpid] = sys_getpid,
+    [SYS_putc] = sys_putc,
+    [SYS_unlink] = sys_unlink,
+    [SYS_pgdir] = sys_pgdir,
+    [SYS_gettime] = sys_gettime,
+    [SYS_lab6_set_priority] = sys_lab6_set_priority,
+    [SYS_sleep] = sys_sleep,
+    [SYS_open] = sys_open,
+    [SYS_close] = sys_close,
+    [SYS_read] = sys_read,
+    [SYS_write] = sys_write,
+    [SYS_seek] = sys_seek,
+    [SYS_fstat] = sys_fstat,
+    [SYS_fsync] = sys_fsync,
+    [SYS_getcwd] = sys_getcwd,
+    [SYS_getdirentry] = sys_getdirentry,
+    [SYS_dup] = sys_dup,
+    [SYS_pipe] = sys_pipe,
 };
 
 static char* syscalls_name[] = {
@@ -217,7 +224,7 @@ static char* syscalls_name[] = {
     "exit", "fork", "wait", "exec", "clone", "yield", "sleep", "kill", "ps",
     "gettime", "getpid", "mmap", "munmap", "shmem", "putc", "pgdir",
     "unlink", "open", "close", "read", "write", "seek", "fstat", "fsync",
-    "getcwd", "getdirentry", "dup",
+    "getcwd", "getdirentry", "dup", "pipe",
 };
 
 #define NUM_SYSCALLS ((sizeof(syscalls)) / (sizeof(syscalls[0])))

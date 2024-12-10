@@ -5,7 +5,7 @@
 #include <inode.h>
 #include <unistd.h>
 #include <error.h>
-#include "log.h"
+#include <log.h>
 
 /*
  * dev_open - Called for each open().

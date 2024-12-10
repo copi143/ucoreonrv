@@ -8,7 +8,7 @@ V       := @
 #-------------------------------------------------------------------------------//
 
 # 日志控制宏
-LOG ?= trace
+LOG ?= 
 
 #------------------------------------------------------------------------------//
 
@@ -204,6 +204,7 @@ KINCLUDE	+= kern/debug/ \
 			   kern/fs/vfs/ \
 			   kern/fs/devs/ \
 			   kern/fs/sfs/	\
+			   kern/fs/pipe/ \
 			   kern/log/
 
 
@@ -221,7 +222,8 @@ KSRCDIR		+= kern/init \
 			   kern/fs/swap \
 			   kern/fs/vfs \
 			   kern/fs/devs \
-			   kern/fs/sfs
+			   kern/fs/sfs  \
+			   kern/fs/pipe \
 
 KCFLAGS		+= $(addprefix -I,$(KINCLUDE))
 

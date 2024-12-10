@@ -260,15 +260,17 @@ proc_run(struct proc_struct *proc) {
     *        MACROs or Functions:
      *       flush_tlb():          flush the tlb        
      */
-    debugf("Switching process from PID: %d to PID: %d", current->pid, proc->pid);
-    bool intr_flag;
-    struct proc_struct *prev = current, *next = proc;
-    local_intr_save(intr_flag);
-    current = proc;
-    lcr3(next->cr3);
-    switch_to(&(prev->context), &(next->context));
-    local_intr_restore(intr_flag);
-    infof("Process switch complete. Now running PID: %d", proc->pid);
+        debugf("Switching process from PID: %d to PID: %d", current->pid, proc->pid);
+        bool intr_flag;
+        struct proc_struct *prev = current, *next = proc;
+        local_intr_save(intr_flag);
+        {
+            current = proc;
+            lcr3(next->cr3);
+            switch_to(&(prev->context), &(next->context));
+        }
+        local_intr_restore(intr_flag);
+        infof("Process switch complete. Now running PID: %d", proc->pid);
     }
 }
 
@@ -347,7 +349,6 @@ setup_pgdir(struct mm_struct *mm) {
     }
     pde_t *pgdir = page2kva(page);
     memcpy(pgdir, boot_pgdir, PGSIZE);
-
     mm->pgdir = pgdir;
     return 0;
 }

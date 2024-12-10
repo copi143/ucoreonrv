@@ -71,6 +71,11 @@
 #define UTEXT               0x00800000                  // where user programs generally begin
 #define USTAB               USERBASE                    // the location of the user STABS data structure
 
+#include <mmu.h>
+#define MAXVA (1L << (9 + 9 + 9 + 12 - 1))
+#define TRAMPOLINE (MAXVA - PGSIZE)
+#define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
 #define USER_ACCESS(start, end)                     \
 (USERBASE <= (start) && (start) < (end) && (end) <= USERTOP)
 

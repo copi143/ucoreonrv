@@ -31,6 +31,7 @@
 #define SYS_getcwd          25
 #define SYS_getdirentry     26
 #define SYS_dup             27
+#define SYS_pipe            28
 
 /* OLNY FOR LAB6 */
 #define SYS_lab6_set_priority 255

@@ -153,6 +153,11 @@ sys_dup(int64_t fd1, int64_t fd2) {
     return syscall(SYS_dup, fd1, fd2);
 }
 
+int sys_pipe(int64_t *fd_store)
+{
+    return syscall(SYS_pipe, fd_store);
+}
+
 int sys_unlink(const char *path)
 {
     return syscall(SYS_unlink, path);
