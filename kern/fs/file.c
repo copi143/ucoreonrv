@@ -195,15 +195,22 @@ file_open(char *path, uint32_t open_flags) {
     file->readable = readable;
     file->writable = writable;
     fd_array_open(file);
-    infof("File opened successfully: %s, FD: %d", path, file->fd);
+    // infof("File opened successfully: %s, FD: %d", path, file->fd);
+    if (file->fd != 0 && file->fd != 1) {
+        infof("File opened successfully: %s, FD: %d", path, file->fd);
+    
+    }
     return file->fd;
 }
 
 // close file
 int
 file_close(int fd) {
-    infof("Attempting to close file descriptor: %d", fd);
-
+    // infof("Attempting to close file descriptor: %d", fd);
+    if (fd != 0) {
+        infof("Attempting to close file descriptor: %d", fd);
+    }
+    
     int ret;
     struct file *file;
     if ((ret = fd2file(fd, &file)) != 0) {
@@ -212,14 +219,20 @@ file_close(int fd) {
     }
 
     fd_array_close(file);
-    infof("File descriptor %d closed successfully", fd);
+    // infof("File descriptor %d closed successfully", fd);
+    if (fd != 0) {
+        infof("File descriptor %d closed successfully", fd);
+    }
     return 0;
 }
 
 // read file
 int
 file_read(int fd, void *base, size_t len, size_t *copied_store) {
-    infof("Reading from file descriptor: %d", fd);
+    // infof("Reading from file descriptor: %d", fd);
+    if (fd != 0) {
+       infof("Reading from file descriptor: %d", fd); 
+    }
 
     int ret;
     struct file *file;
@@ -244,12 +257,19 @@ file_read(int fd, void *base, size_t len, size_t *copied_store) {
     *copied_store = copied;
     fd_array_release(file);
 
-    if (ret == 0) {
-        infof("Read from file descriptor %d", fd);
-    } else {
-        errorf("Error reading from file descriptor %d, error code: %d", fd, ret);
+    // if (ret == 0) {
+    //     infof("Read from file descriptor %d", fd);
+    // } else {
+    //     errorf("Error reading from file descriptor %d, error code: %d", fd, ret);
+    // }
+    if (fd != 0) {
+        if (ret == 0) {
+            infof("Read from file descriptor %d", fd);
+        } else {
+            errorf("Error reading from file descriptor %d, error code: %d", fd, ret);
+        }
     }
-
+    
     return ret;
 }
 
@@ -257,7 +277,10 @@ file_read(int fd, void *base, size_t len, size_t *copied_store) {
 // write file
 int
 file_write(int fd, void *base, size_t len, size_t *copied_store) {
-    infof("Writing to file descriptor: %d", fd);
+    // infof("Writing to file descriptor: %d", fd);
+    if (fd != 1) {
+        infof("Writing to file descriptor: %d", fd);
+    }
 
     int ret;
     struct file *file;
@@ -282,10 +305,17 @@ file_write(int fd, void *base, size_t len, size_t *copied_store) {
     *copied_store = copied;
     fd_array_release(file);
 
-    if (ret == 0) {
-        infof("Wrote into file descriptor %d", fd);
-    } else {
-        errorf("Error writing to file descriptor %d, error code: %d", fd, ret);
+    // if (ret == 0) {
+    //     infof("Write into file descriptor %d", fd);
+    // } else {
+    //     errorf("Error writing to file descriptor %d, error code: %d", fd, ret);
+    // }
+    if (fd != 1) {
+        if (ret == 0) {
+            infof("Write into file descriptor %d", fd);
+        } else {
+            errorf("Error writing to file descriptor %d, error code: %d", fd, ret);
+        }
     }
 
     return ret;
@@ -295,7 +325,10 @@ file_write(int fd, void *base, size_t len, size_t *copied_store) {
 // seek file
 int
 file_seek(int fd, off_t pos, int whence) {
-    infof("Seeking in file descriptor %d, position: %lld, whence: %d", fd, (long long)pos, whence);
+    // infof("Seeking in file descriptor %d, position: %lld, whence: %d", fd, (long long)pos, whence);
+    if (fd != 0) {
+        infof("Seeking in file descriptor %d, position: %lld, whence: %d", fd, (long long)pos, whence);
+    }
 
     struct stat __stat, *stat = &__stat;
     int ret;
@@ -324,10 +357,17 @@ file_seek(int fd, off_t pos, int whence) {
     }
     fd_array_release(file);
 
-    if (ret == 0) {
-        infof("Seek successful in file descriptor %d, new position: %lld", fd, (long long)file->pos);
-    } else {
-        errorf("Error seeking in file descriptor %d, error code: %d", fd, ret);
+    // if (ret == 0) {
+    //     infof("Seek successful in file descriptor %d, new position: %lld", fd, (long long)file->pos);
+    // } else {
+    //     errorf("Error seeking in file descriptor %d, error code: %d", fd, ret);
+    // }
+    if (fd != 0) {
+        if (ret == 0) {
+            infof("Seek successful in file descriptor %d, new position: %lld", fd, (long long)file->pos);
+        } else {
+            errorf("Error seeking in file descriptor %d, error code: %d", fd, ret);
+        }
     }
 
     return ret;

@@ -6,7 +6,6 @@
 #include <ulib.h>
 #include <unistd.h>
 
-#define printf(...) fprintf(1, __VA_ARGS__)
 #define putc(c) printf("%c", c)
 
 #define BUFSIZE 4096
