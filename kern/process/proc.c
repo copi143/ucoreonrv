@@ -767,9 +767,10 @@ load_icode(int fd, int argc, char **kargv) {
         uargv[i] = strcpy((char *)(stacktop + argv_size ), kargv[i]);
         argv_size +=  strnlen(kargv[i],EXEC_MAX_ARG_LEN + 1)+1;
     }
-    
+    // cprintf("load_icode: uargv[0] %s, argc %d, argv_size %d, stacktop %p\n", uargv[0], argc, argv_size, stacktop);
     stacktop = (uintptr_t)uargv - sizeof(int);
-    *(int *)stacktop = argc;
+    *(int*)stacktop = argc;
+    // cprintf("load_icode: uargv[0] %s, argc %d, argv_size %d, stacktop %p\n", uargv[0], *(int*)stacktop, argv_size, stacktop);
     
     struct trapframe *tf = current->tf;
     uintptr_t sstatus = tf->status;
@@ -858,6 +859,7 @@ do_execve(const char *name, int argc, const char **argv) {
         return ret;
     }
     path = argv[0];
+    // cprintf("do_execve %s: pid %d, name %s.\n", path,current->pid, local_name);
     unlock_mm(mm);
     files_closeall(current->filesp);
 
@@ -872,17 +874,19 @@ do_execve(const char *name, int argc, const char **argv) {
         if (mm_count_dec(mm) == 0) {
             exit_mmap(mm);
             put_pgdir(mm);
-            mm_destroy(mm);
+            mm_destroy(mm); // 把进程当前占用的内存释放，之后重新分配内存
         }
         current->mm = NULL;
     }
-    ret= -E_NO_MEM;
+    ret = -E_NO_MEM;
+    // 重新构建进程的内存空间
     if ((ret = load_icode(fd, argc, kargv)) != 0) {
         goto execve_exit;
     }
     put_kargv(argc, kargv);
     // cprintf("do_execve after put_kargv argc:%d\n", argc);
     set_proc_name(current, local_name);
+    // cprintf("do_execve pid %d, name %s.\n", current->pid, current->name);
     return 0;
 
 execve_exit:

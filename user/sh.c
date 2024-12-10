@@ -6,7 +6,6 @@
 #include <ulib.h>
 #include <unistd.h>
 
-#define printf(...) fprintf(1, __VA_ARGS__)
 #define putc(c) printf("%c", c)
 
 #define BUFSIZE 4096
@@ -207,7 +206,8 @@ runit:
     argv[argc] = NULL;
     // printf("argv[0]: %s\n", argv[0]);
     assert(argv[argc] == NULL);
-    return __exec( argv[0], argv);
+
+    return __exec(argv[0], argv);
 }
 
 int main(int argc, char** argv)
@@ -238,6 +238,7 @@ int main(int argc, char** argv)
         }
         assert(pid >= 0);
         // printf("pid: %d\n", pid);
+
         if (waitpid(pid, &ret) == 0) {
             if (ret == 0 && shcwd[0] != '\0') {
                 ret = 0;
