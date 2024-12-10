@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <error.h>
 #include <assert.h>
+#include "log.h"
 
 #define testfd(fd)                          ((fd) >= 0 && (fd) < FILES_STRUCT_NENTRY)
 
@@ -155,6 +156,7 @@ file_testfd(int fd, bool readable, bool writable) {
 // open file
 int
 file_open(char *path, uint32_t open_flags) {
+    infof("Attempting to open file: %s with flags: 0x%x", path, open_flags);
     bool readable = 0, writable = 0;
     switch (open_flags & O_ACCMODE) { //解析 open_flags
     case O_RDONLY: readable = 1; break;
@@ -163,16 +165,19 @@ file_open(char *path, uint32_t open_flags) {
         readable = writable = 1;
         break;
     default:
+        errorf("Invalid access mode for file: %s", path);
         return -E_INVAL;
     }
     int ret;
     struct file *file;
     if ((ret = fd_array_alloc(NO_FD, &file)) != 0) { // 从头到尾找到第一个未初始化的fd，并将其初始化init
+        errorf("Failed to allocate file descriptor for file: %s", path);
         return ret;
     }
     struct inode *node;
     if ((ret = vfs_open(path, open_flags, &node)) != 0) {
         fd_array_free(file);
+        errorf("Failed to open file: %s, error code: %d", path, ret);
         return ret;
     }
     file->pos = 0;
@@ -181,6 +186,7 @@ file_open(char *path, uint32_t open_flags) {
         if ((ret = vop_fstat(node, stat)) != 0) {
             vfs_close(node);
             fd_array_free(file);
+            errorf("Failed to get file stats for file: %s in append mode", path);
             return ret;
         }
         file->pos = stat->st_size;
@@ -189,35 +195,58 @@ file_open(char *path, uint32_t open_flags) {
     file->readable = readable;
     file->writable = writable;
     fd_array_open(file);
+    // infof("File opened successfully: %s, FD: %d", path, file->fd);
+    if (file->fd != 0 && file->fd != 1) {
+        infof("File opened successfully: %s, FD: %d", path, file->fd);
+    
+    }
     return file->fd;
 }
 
 // close file
 int
 file_close(int fd) {
+    // infof("Attempting to close file descriptor: %d", fd);
+    if (fd != 0) {
+        infof("Attempting to close file descriptor: %d", fd);
+    }
+    
     int ret;
     struct file *file;
     if ((ret = fd2file(fd, &file)) != 0) {
+        errorf("Invalid file descriptor: %d", fd);
         return ret;
     }
+
     fd_array_close(file);
+    // infof("File descriptor %d closed successfully", fd);
+    if (fd != 0) {
+        infof("File descriptor %d closed successfully", fd);
+    }
     return 0;
 }
 
 // read file
 int
 file_read(int fd, void *base, size_t len, size_t *copied_store) {
+    // infof("Reading from file descriptor: %d", fd);
+    if (fd != 0) {
+       infof("Reading from file descriptor: %d", fd); 
+    }
+
     int ret;
     struct file *file;
     *copied_store = 0;
     if ((ret = fd2file(fd, &file)) != 0) {
+        errorf("Invalid file descriptor for read: %d", fd);
         return ret;
     }
     if (!file->readable) {
+        errorf("File descriptor %d is not readable", fd);
         return -E_INVAL;
     }
-    fd_array_acquire(file);
 
+    fd_array_acquire(file);
     struct iobuf __iob, *iob = iobuf_init(&__iob, base, len, file->pos);
     ret = vop_read(file->node, iob);
 
@@ -227,23 +256,45 @@ file_read(int fd, void *base, size_t len, size_t *copied_store) {
     }
     *copied_store = copied;
     fd_array_release(file);
+
+    // if (ret == 0) {
+    //     infof("Read from file descriptor %d", fd);
+    // } else {
+    //     errorf("Error reading from file descriptor %d, error code: %d", fd, ret);
+    // }
+    if (fd != 0) {
+        if (ret == 0) {
+            infof("Read from file descriptor %d", fd);
+        } else {
+            errorf("Error reading from file descriptor %d, error code: %d", fd, ret);
+        }
+    }
+    
     return ret;
 }
+
 
 // write file
 int
 file_write(int fd, void *base, size_t len, size_t *copied_store) {
+    // infof("Writing to file descriptor: %d", fd);
+    if (fd != 1) {
+        infof("Writing to file descriptor: %d", fd);
+    }
+
     int ret;
     struct file *file;
     *copied_store = 0;
     if ((ret = fd2file(fd, &file)) != 0) {
+        errorf("Invalid file descriptor for write: %d", fd);
         return ret;
     }
     if (!file->writable) {
+        errorf("File descriptor %d is not writable", fd);
         return -E_INVAL;
     }
-    fd_array_acquire(file);
 
+    fd_array_acquire(file);
     struct iobuf __iob, *iob = iobuf_init(&__iob, base, len, file->pos);
     ret = vop_write(file->node, iob);
 
@@ -253,38 +304,72 @@ file_write(int fd, void *base, size_t len, size_t *copied_store) {
     }
     *copied_store = copied;
     fd_array_release(file);
+
+    // if (ret == 0) {
+    //     infof("Write into file descriptor %d", fd);
+    // } else {
+    //     errorf("Error writing to file descriptor %d, error code: %d", fd, ret);
+    // }
+    if (fd != 1) {
+        if (ret == 0) {
+            infof("Write into file descriptor %d", fd);
+        } else {
+            errorf("Error writing to file descriptor %d, error code: %d", fd, ret);
+        }
+    }
+
     return ret;
 }
+
 
 // seek file
 int
 file_seek(int fd, off_t pos, int whence) {
+    // infof("Seeking in file descriptor %d, position: %lld, whence: %d", fd, (long long)pos, whence);
+    if (fd != 0) {
+        infof("Seeking in file descriptor %d, position: %lld, whence: %d", fd, (long long)pos, whence);
+    }
+
     struct stat __stat, *stat = &__stat;
     int ret;
     struct file *file;
     if ((ret = fd2file(fd, &file)) != 0) {
+        errorf("Invalid file descriptor for seek: %d", fd);
         return ret;
     }
-    fd_array_acquire(file);
 
+    fd_array_acquire(file);
     switch (whence) {
-    case LSEEK_SET: break;
-    case LSEEK_CUR: pos += file->pos; break;
-    case LSEEK_END:
-        if ((ret = vop_fstat(file->node, stat)) == 0) {
-            pos += stat->st_size;
-        }
-        break;
-    default: ret = -E_INVAL;
+        case LSEEK_SET: break;
+        case LSEEK_CUR: pos += file->pos; break;
+        case LSEEK_END:
+            if ((ret = vop_fstat(file->node, stat)) == 0) {
+                pos += stat->st_size;
+            }
+            break;
+        default: ret = -E_INVAL;
     }
 
     if (ret == 0) {
         if ((ret = vop_tryseek(file->node, pos)) == 0) {
             file->pos = pos;
         }
-//    cprintf("file_seek, pos=%d, whence=%d, ret=%d\n", pos, whence, ret);
     }
     fd_array_release(file);
+
+    // if (ret == 0) {
+    //     infof("Seek successful in file descriptor %d, new position: %lld", fd, (long long)file->pos);
+    // } else {
+    //     errorf("Error seeking in file descriptor %d, error code: %d", fd, ret);
+    // }
+    if (fd != 0) {
+        if (ret == 0) {
+            infof("Seek successful in file descriptor %d, new position: %lld", fd, (long long)file->pos);
+        } else {
+            errorf("Error seeking in file descriptor %d, error code: %d", fd, ret);
+        }
+    }
+
     return ret;
 }
 

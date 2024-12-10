@@ -5,35 +5,64 @@
 #include <inode.h>
 #include <unistd.h>
 #include <error.h>
+#include "log.h"
 
 /*
  * dev_open - Called for each open().
  */
 static int
 dev_open(struct inode *node, uint32_t open_flags) {
+    infof("Attempting to open device, flags: 0x%x", open_flags);
+
     if (open_flags & (O_CREAT | O_TRUNC | O_EXCL | O_APPEND)) {
+        errorf("Invalid flags for opening device: 0x%x", open_flags);
         return -E_INVAL;
     }
+
     struct device *dev = vop_info(node, device);
-    return dop_open(dev, open_flags);
+    int ret = dop_open(dev, open_flags);
+    if (ret == 0) {
+        infof("Device opened successfully.");
+    } else {
+        errorf("Failed to open device, error code: %d", ret);
+    }
+    return ret;
 }
+
 
 /*
  * dev_close - Called on the last close(). Just pass through.
  */
 static int
 dev_close(struct inode *node) {
+    infof("Closing device.");
+
     struct device *dev = vop_info(node, device);
-    return dop_close(dev);
+    int ret = dop_close(dev);
+    if (ret == 0) {
+        infof("Device closed successfully.");
+    } else {
+        errorf("Failed to close device, error code: %d", ret);
+    }
+    return ret;
 }
+
 
 /*
  * dev_read -Called for read. Hand off to iobuf.
  */
 static int
 dev_read(struct inode *node, struct iobuf *iob) {
+    infof("Reading from device");
+
     struct device *dev = vop_info(node, device);
-    return dop_io(dev, iob, 0);
+    int ret = dop_io(dev, iob, 0);
+    if (ret == 0) {
+        infof("Read successful");
+    } else {
+        errorf("Failed to read from device, error code: %d", ret);
+    }
+    return ret;
 }
 
 /*
@@ -41,18 +70,36 @@ dev_read(struct inode *node, struct iobuf *iob) {
  */
 static int
 dev_write(struct inode *node, struct iobuf *iob) {
+    infof("Writing to device");
+
     struct device *dev = vop_info(node, device);
-    return dop_io(dev, iob, 1);
+    int ret = dop_io(dev, iob, 1);
+    if (ret == 0) {
+        infof("Write successful");
+    } else {
+        errorf("Failed to write to device, error code: %d", ret);
+    }
+    return ret;
 }
+
 
 /*
  * dev_ioctl - Called for ioctl(). Just pass through.
  */
 static int
 dev_ioctl(struct inode *node, int op, void *data) {
+    infof("Sending ioctl command to device, op: %d", op);
+
     struct device *dev = vop_info(node, device);
-    return dop_ioctl(dev, op, data);
+    int ret = dop_ioctl(dev, op, data);
+    if (ret == 0) {
+        infof("Ioctl command executed successfully.");
+    } else {
+        errorf("Failed to execute ioctl command, error code: %d", ret);
+    }
+    return ret;
 }
+
 
 /*
  * dev_fstat - Called for stat().
@@ -61,17 +108,24 @@ dev_ioctl(struct inode *node, int op, void *data) {
  */
 static int
 dev_fstat(struct inode *node, struct stat *stat) {
-    int ret;
-    memset(stat, 0, sizeof(struct stat));
-    if ((ret = vop_gettype(node, &(stat->st_mode))) != 0) {
+    infof("Fetching device stats.");
+
+    int ret = vop_gettype(node, &(stat->st_mode));
+    if (ret != 0) {
+        errorf("Failed to fetch device type, error code: %d", ret);
         return ret;
     }
+
     struct device *dev = vop_info(node, device);
     stat->st_nlinks = 1;
     stat->st_blocks = dev->d_blocks;
     stat->st_size = stat->st_blocks * dev->d_blocksize;
+
+    infof("Device stats fetched successfully: blocks=%d, blocksize=%d",
+          stat->st_blocks, dev->d_blocksize);
     return 0;
 }
+
 
 /*
  * dev_gettype - Return the type. A device is a "block device" if it has a known
@@ -82,8 +136,12 @@ static int
 dev_gettype(struct inode *node, uint32_t *type_store) {
     struct device *dev = vop_info(node, device);
     *type_store = (dev->d_blocks > 0) ? S_IFBLK : S_IFCHR;
+
+    infof("Device type retrieved: %s",
+          (*type_store == S_IFBLK) ? "block device" : "character device");
     return 0;
 }
+
 
 /*
  * dev_tryseek - Attempt a seek.
@@ -148,12 +206,12 @@ static const struct inode_ops dev_node_ops = {
     } while (0)
 
 /* dev_init - Initialization functions for builtin vfs-level devices. */
-void
-dev_init(void) {
-   // init_device(null);
+void dev_init(void) {
+    infof("Initializing devices.");
     init_device(stdin);
     init_device(stdout);
     init_device(disk0);
+    infof("Devices initialized successfully.");
 }
 /* dev_create_inode - Create inode for a vfs-level device. */
 struct inode *

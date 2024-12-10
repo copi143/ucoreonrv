@@ -227,6 +227,7 @@ void syscall(void)
     struct trapframe* tf = current->tf;
     uint64_t arg[5];
     int num = tf->gpr.a0;
+
     if (num >= 0 && num < NUM_SYSCALLS) {
         if (syscalls[num] != NULL) {
             arg[0] = tf->gpr.a1;
@@ -236,13 +237,15 @@ void syscall(void)
             arg[4] = tf->gpr.a5;
             tf->gpr.a0 = syscalls[num](arg);
             if (num != SYS_read && num != SYS_write && num != SYS_putc) {
-                tracef("syscall %d: %s, pid = %d, name = %s.",
-                    num, syscalls_name[num], current->pid, current->name);
+                infof("Syscall %d: %s completed, pid = %d, name = %s, return = %lx",
+                      num, syscalls_name[num], current->pid, current->name, tf->gpr.a0);
             }
             return;
         }
     }
+
     print_trapframe(tf);
-    panic("undefined syscall %d, pid = %d, name = %s.\n",
-        num, current->pid, current->name);
+    errorf("Undefined syscall %d, pid = %d, name = %s", num, current->pid, current->name);
+    panic("Undefined syscall %d, pid = %d, name = %s.\n", num, current->pid, current->name);
 }
+
