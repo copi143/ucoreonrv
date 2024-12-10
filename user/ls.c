@@ -121,7 +121,7 @@ int ls(const char* path)
 int main(int argc, char** argv)
 {
     // printf("ls argc = %d\n", argc);
-    if (argc == 0 || argc == 1) {
+    if (argc < 2) {
         return ls(".");
     } else {
         int i, ret;

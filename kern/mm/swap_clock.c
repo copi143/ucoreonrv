@@ -42,7 +42,7 @@ static int _clock_init_mm(struct mm_struct *mm) { // TODO
   list_init(&pra_list_head);
   mm->sm_priv = &pra_list_head;
   curr_ptr = &pra_list_head;
-  cprintf(" mm->sm_priv %x in fifo_init_mm\n",mm->sm_priv);
+  // cprintf(" mm->sm_priv %x in clock_init_mm\n",mm->sm_priv);
   return 0;
 }
 /*
